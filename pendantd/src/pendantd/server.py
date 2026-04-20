@@ -60,6 +60,8 @@ class Server:
             wd.ping()
         elif t == "button_press":
             await self._handle_button(ws, session, msg)
+        elif t == "chat_prompt":
+            await self._run_prompt(ws, session, msg.get("text", ""))
 
     async def _handle_button(self, ws, session: Session, msg: dict) -> None:
         try:
