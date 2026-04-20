@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robot-md-pendant/schemas/v1/voice_state.schema.json",
+  "title": "voice_state",
+  "type": "object",
+  "required": ["v", "type", "state"],
+  "properties": {
+    "v":     {"const": 1},
+    "type":  {"const": "voice_state"},
+    "state": {"enum": ["idle", "recording", "speaking", "disabled"]}
+  },
+  "additionalProperties": false
+}

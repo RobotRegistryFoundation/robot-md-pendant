@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robot-md-pendant/schemas/v1/hello.schema.json",
+  "title": "hello",
+  "type": "object",
+  "required": ["v", "type", "buttons", "voice_state", "wifi_mode", "robot_status"],
+  "properties": {
+    "v":            {"const": 1},
+    "type":         {"const": "hello"},
+    "buttons":      {"type": "array"},
+    "voice_state":  {"type": "object"},
+    "wifi_mode":    {"enum": ["sta", "ap"]},
+    "robot_status": {"type": "object"}
+  },
+  "additionalProperties": false
+}

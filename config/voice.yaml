@@ -1,0 +1,5 @@
+wake_word: false
+wake_model: "claude.tflite"
+sticky_ptt: false
+tts_voice: "en_US-lessac-medium"
+barge_in: true

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robot-md-pendant/schemas/v1/error.schema.json",
+  "title": "error",
+  "type": "object",
+  "required": ["v", "type", "code", "message"],
+  "properties": {
+    "v":       {"const": 1},
+    "type":    {"const": "error"},
+    "code":    {"type": "string"},
+    "message": {"type": "string"}
+  },
+  "additionalProperties": false
+}

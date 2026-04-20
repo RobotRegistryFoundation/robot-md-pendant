@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robot-md-pendant/schemas/v1/status.schema.json",
+  "title": "status",
+  "type": "object",
+  "required": ["v", "type", "robot_status", "estopped"],
+  "properties": {
+    "v":            {"const": 1},
+    "type":         {"const": "status"},
+    "robot_status": {"type": "object"},
+    "estopped":     {"type": "boolean"}
+  },
+  "additionalProperties": false
+}

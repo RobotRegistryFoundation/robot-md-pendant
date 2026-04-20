@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robot-md-pendant/schemas/v1/heartbeat.schema.json",
+  "title": "heartbeat",
+  "type": "object",
+  "required": ["v", "type", "seq"],
+  "properties": {
+    "v":    {"const": 1},
+    "type": {"const": "heartbeat"},
+    "seq":  {"type": "integer", "minimum": 0}
+  },
+  "additionalProperties": false
+}

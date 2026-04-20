@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robot-md-pendant/schemas/v1/thumbnail.schema.json",
+  "title": "thumbnail",
+  "type": "object",
+  "required": ["v", "type", "b64", "w", "h"],
+  "properties": {
+    "v":    {"const": 1},
+    "type": {"const": "thumbnail"},
+    "b64":  {"type": "string"},
+    "w":    {"type": "integer"},
+    "h":    {"type": "integer"}
+  },
+  "additionalProperties": false
+}
