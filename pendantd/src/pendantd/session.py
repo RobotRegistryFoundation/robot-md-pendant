@@ -10,6 +10,8 @@ class Session:
     wifi_mode: str = "sta"
     robot_status: dict = field(default_factory=lambda: {"bus": "ok"})
     estopped: bool = False
+    # NEW — reference to the piper currently streaming, if any, for barge-in cancellation
+    _piper_active: object | None = None
 
     def hello_payload(self) -> dict:
         return {

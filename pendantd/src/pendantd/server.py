@@ -20,6 +20,7 @@ class Server:
         self._agent_factory = agent_factory
         self._whisper = whisper
         self._piper = piper
+        self._tasks: set[asyncio.Task] = set()
 
     @contextlib.asynccontextmanager
     async def run(self) -> AsyncIterator[str]:
@@ -87,12 +88,22 @@ class Server:
 
     async def _dispatch(self, ws, session: Session, wd: Watchdog, msg: dict) -> None:
         t = msg.get("type")
+        if t == "barge_in":
+            active = session._piper_active
+            if active is not None and hasattr(active, "cancel"):
+                try:
+                    await active.cancel()
+                except Exception:
+                    pass
+            return
         if t == "heartbeat":
             wd.ping()
         elif t == "button_press":
             await self._handle_button(ws, session, msg)
         elif t == "chat_prompt":
-            await self._run_prompt(ws, session, msg.get("text", ""))
+            task = asyncio.create_task(self._run_prompt(ws, session, msg.get("text", "")))
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
         elif t == "soft_stop":
             await self._handle_soft_stop(ws, session)
 
@@ -173,11 +184,14 @@ class Server:
             elif isinstance(ev, MessageEvent):
                 await ws.send(json.dumps({"v": 1, "type": "chat_message", "role": ev.role, "text": ev.text}))
                 if self._piper is not None:
+                    session._piper_active = self._piper
                     try:
                         async for chunk in self._piper.synthesize(ev.text):
                             await ws.send(b"\x02" + chunk)
                     except Exception:
                         pass
+                    finally:
+                        session._piper_active = None
 
     @staticmethod
     def _extract_id(path: str) -> str:
