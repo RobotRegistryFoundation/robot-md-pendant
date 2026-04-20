@@ -2,6 +2,8 @@
 #include "lvgl.h"
 #include <stdio.h>
 #include <string.h>
+#include "app_state.h"
+#include <stdint.h>
 
 static lv_obj_t *s_connecting = NULL, *s_dashboard = NULL, *s_error = NULL;
 static lv_obj_t *s_status_lbl = NULL, *s_chat_list = NULL, *s_estopped_banner = NULL;
@@ -99,4 +101,35 @@ void ui_set_estopped_banner(bool on) {
     if (!s_estopped_banner) return;
     if (on) lv_obj_clear_flag(s_estopped_banner, LV_OBJ_FLAG_HIDDEN);
     else    lv_obj_add_flag(s_estopped_banner, LV_OBJ_FLAG_HIDDEN);
+}
+
+static ui_button_pressed_cb_t s_btn_cb = NULL;
+static lv_obj_t *s_btn_grid = NULL;
+
+void ui_set_button_pressed_cb(ui_button_pressed_cb_t cb) { s_btn_cb = cb; }
+
+static void btn_ev(lv_event_t *e) {
+    uintptr_t idx = (uintptr_t)lv_event_get_user_data(e);
+    if (s_btn_cb) s_btn_cb((uint8_t)idx);
+}
+
+void ui_rebuild_button_grid(void) {
+    if (!s_dashboard) return;
+    if (s_btn_grid) { lv_obj_del(s_btn_grid); s_btn_grid = NULL; }
+    s_btn_grid = lv_obj_create(s_dashboard);
+    lv_obj_set_size(s_btn_grid, 240, 240);
+    lv_obj_align(s_btn_grid, LV_ALIGN_BOTTOM_LEFT, 10, -10);
+    lv_obj_set_flex_flow(s_btn_grid, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_style_pad_all(s_btn_grid, 6, 0);
+
+    app_state_lock();
+    for (uint8_t i = 0; i < g_app.button_count; i++) {
+        lv_obj_t *b = lv_btn_create(s_btn_grid);
+        lv_obj_set_size(b, 110, 60);
+        lv_obj_add_event_cb(b, btn_ev, LV_EVENT_CLICKED, (void*)(uintptr_t)i);
+        lv_obj_t *lbl = lv_label_create(b);
+        lv_label_set_text(lbl, g_app.buttons[i].label);
+        lv_obj_center(lbl);
+    }
+    app_state_unlock();
 }

@@ -9,6 +9,7 @@
 #include "freertos/task.h"
 #include "cJSON.h"
 #include <string.h>
+#include <stdio.h>
 
 static const char *TAG = "app_task";
 static QueueHandle_t s_inbox = NULL;
@@ -71,10 +72,17 @@ static void app_loop(void *arg) {
             case MSG_HELLO:
                 apply_hello(item.json);
                 ui_show_dashboard();
+                ui_rebuild_button_grid();
                 break;
             case MSG_CHAT_MESSAGE:
                 ui_append_chat(m.u.chat_message.role, m.u.chat_message.text);
                 break;
+            case MSG_TOOL_CALL: {
+                char line[320];
+                snprintf(line, sizeof(line), "\xe2\x86\x92 %s (%s)", m.u.tool_call.name, m.u.tool_call.status);
+                ui_append_chat("tool", line);
+                break;
+            }
             case MSG_STATUS:
                 ui_set_estopped_banner(m.u.status.estopped);
                 break;
@@ -84,9 +92,16 @@ static void app_loop(void *arg) {
     }
 }
 
+static void on_button_press(uint8_t index) {
+    char buf[80]; char id[8]; snprintf(id, sizeof(id), "%u", index);
+    int n = protocol_emit_button_press(buf, sizeof(buf), id);
+    if (n > 0) ws_client_send_text(buf, n);
+}
+
 esp_err_t app_task_start(const char *ws_url) {
     s_inbox = xQueueCreate(32, sizeof(inbox_item_t));
     ESP_ERROR_CHECK(ws_client_init(ws_url, on_text, on_bin));
+    ui_set_button_pressed_cb(on_button_press);
     ESP_ERROR_CHECK(ws_client_start());
     xTaskCreate(app_loop, "app_loop", 6144, NULL, 5, NULL);
     return ESP_OK;
