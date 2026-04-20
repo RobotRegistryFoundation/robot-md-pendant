@@ -13,6 +13,7 @@
 #include "ui.h"
 #include "lvgl.h"
 #include "app_task.h"
+#include "es8311_audio.h"
 
 static const char *TAG = "main";
 
@@ -40,6 +41,8 @@ void app_main(void) {
     ESP_LOGI(TAG, "creds found, ssid=%s", ssid);
     ui_show_connecting(ssid);
     ESP_ERROR_CHECK(wifi_mgr_start(ssid, psk));
+
+    ESP_ERROR_CHECK(audio_init());
 
     nvs_handle_t sh; char url[128] = {0}; size_t url_len = sizeof(url);
     ESP_ERROR_CHECK(nvs_open("server", NVS_READONLY, &sh));
