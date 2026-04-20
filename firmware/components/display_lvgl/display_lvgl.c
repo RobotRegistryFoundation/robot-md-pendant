@@ -1,9 +1,11 @@
 #include "display_lvgl.h"
 #include "board_pins.h"
+#include "board_hw.h"
 #include "driver/spi_master.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_sh8601.h"
+#include "esp_lcd_touch_ft5x06.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "lvgl.h"
@@ -11,6 +13,41 @@
 static const char *TAG = "display_lvgl";
 static lv_display_t *s_disp = NULL;
 static esp_lcd_panel_handle_t s_panel = NULL;
+static esp_lcd_touch_handle_t s_touch = NULL;
+static lv_obj_t *s_touch_dot = NULL;
+
+static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
+    uint16_t x[1], y[1], strength[1];
+    uint8_t count = 0;
+    esp_lcd_touch_read_data(s_touch);
+    bool pressed = esp_lcd_touch_get_coordinates(s_touch, x, y, strength, &count, 1);
+    if (pressed && count > 0) {
+        data->state = LV_INDEV_STATE_PRESSED;
+        data->point.x = x[0];
+        data->point.y = y[0];
+        if (s_touch_dot) {
+            lv_obj_clear_flag(s_touch_dot, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(s_touch_dot, x[0] - 20, y[0] - 20);
+        }
+    } else {
+        data->state = LV_INDEV_STATE_RELEASED;
+    }
+}
+
+static esp_err_t touch_init(void) {
+    esp_lcd_panel_io_handle_t tio = NULL;
+    esp_lcd_panel_io_i2c_config_t tio_cfg = ESP_LCD_TOUCH_IO_I2C_FT5x06_CONFIG();
+    ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c_v2(board_hw_i2c_bus(), &tio_cfg, &tio));
+
+    const esp_lcd_touch_config_t tcfg = {
+        .x_max = 368, .y_max = 488,
+        .rst_gpio_num = -1,
+        .int_gpio_num = BSP_TOUCH_INT,
+        .levels = { .reset = 0, .interrupt = 0 },
+        .flags = { .swap_xy = 0, .mirror_x = 0, .mirror_y = 0 },
+    };
+    return esp_lcd_touch_new_i2c_ft5x06(tio, &tcfg, &s_touch);
+}
 
 // SH8601 QSPI init command sequence (from Waveshare demo).
 static const sh8601_lcd_init_cmd_t sh8601_init_cmds[] = {
@@ -68,6 +105,20 @@ esp_err_t display_lvgl_init(void) {
     // Solid color test frame
     lv_obj_t *scr = lv_display_get_screen_active(s_disp);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x001133), 0);
+
+    // Touch indicator dot (so we can see taps)
+    lv_obj_t *dot = lv_obj_create(scr);
+    lv_obj_set_size(dot, 40, 40);
+    lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(dot, lv_color_hex(0xff3333), 0);
+    lv_obj_add_flag(dot, LV_OBJ_FLAG_HIDDEN);
+    s_touch_dot = dot;
+
+    ESP_ERROR_CHECK(touch_init());
+    lv_indev_t *indev = lv_indev_create();
+    lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(indev, touch_read_cb);
+    lv_indev_set_display(indev, s_disp);
 
     ESP_LOGI(TAG, "display init ok (368x488)");
     return ESP_OK;
