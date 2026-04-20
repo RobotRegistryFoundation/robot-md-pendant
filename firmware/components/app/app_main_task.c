@@ -98,6 +98,13 @@ static void on_button_press(uint8_t index) {
     if (n > 0) ws_client_send_text(buf, n);
 }
 
+static void on_chat_submit(const char *text) {
+    char buf[APP_PROMPT_LEN + 64];
+    int n = protocol_emit_chat_prompt(buf, sizeof(buf), text);
+    if (n > 0) ws_client_send_text(buf, n);
+    ui_append_chat("you", text);
+}
+
 static void on_soft_stop(void) {
     // Paint banner immediately — don't wait for Pi confirmation.
     ui_set_estopped_banner(true);
@@ -111,6 +118,7 @@ esp_err_t app_task_start(const char *ws_url) {
     ESP_ERROR_CHECK(ws_client_init(ws_url, on_text, on_bin));
     ui_set_soft_stop_cb(on_soft_stop);
     ui_set_button_pressed_cb(on_button_press);
+    ui_set_chat_submit_cb(on_chat_submit);
     ESP_ERROR_CHECK(ws_client_start());
     xTaskCreate(app_loop, "app_loop", 6144, NULL, 5, NULL);
     return ESP_OK;

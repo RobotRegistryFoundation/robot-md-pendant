@@ -13,6 +13,26 @@ void ui_set_soft_stop_cb(ui_soft_stop_cb_t cb) { s_stop_cb = cb; }
 
 static void stop_ev(lv_event_t *e) { (void)e; if (s_stop_cb) s_stop_cb(); }
 
+static ui_chat_submit_cb_t s_chat_cb = NULL;
+static lv_obj_t *s_chat_ta = NULL, *s_kb = NULL;
+
+void ui_set_chat_submit_cb(ui_chat_submit_cb_t cb) { s_chat_cb = cb; }
+
+static void kb_ev(lv_event_t *e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_READY) {
+        const char *t = lv_textarea_get_text(s_chat_ta);
+        if (s_chat_cb && t && *t) s_chat_cb(t);
+        lv_textarea_set_text(s_chat_ta, "");
+    }
+}
+
+static void ta_focus_ev(lv_event_t *e) {
+    lv_event_code_t c = lv_event_get_code(e);
+    if (c == LV_EVENT_FOCUSED) lv_obj_clear_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
+    else if (c == LV_EVENT_DEFOCUSED) lv_obj_add_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void build_connecting(void) {
     s_connecting = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(s_connecting, lv_color_hex(0x0a0a0a), 0);
@@ -64,6 +84,22 @@ static void build_dashboard(void) {
     lv_obj_set_style_text_color(stop_lbl, lv_color_hex(0xffffff), 0);
     lv_obj_center(stop_lbl);
     lv_obj_add_event_cb(stop_btn, stop_ev, LV_EVENT_CLICKED, NULL);
+
+    s_chat_ta = lv_textarea_create(s_dashboard);
+    lv_obj_set_size(s_chat_ta, 368, 36);
+    lv_obj_align(s_chat_ta, LV_ALIGN_BOTTOM_MID, 0, -80);
+    lv_textarea_set_one_line(s_chat_ta, true);
+    lv_textarea_set_placeholder_text(s_chat_ta, "ask Claude...");
+
+    s_kb = lv_keyboard_create(s_dashboard);
+    lv_obj_set_size(s_kb, 368, 180);
+    lv_obj_align(s_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_keyboard_set_textarea(s_kb, s_chat_ta);
+    lv_obj_add_event_cb(s_kb, kb_ev, LV_EVENT_READY, NULL);
+    lv_obj_add_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_add_event_cb(s_chat_ta, ta_focus_ev, LV_EVENT_FOCUSED, NULL);
+    lv_obj_add_event_cb(s_chat_ta, ta_focus_ev, LV_EVENT_DEFOCUSED, NULL);
 }
 
 static void build_error(void) {
