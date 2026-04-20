@@ -40,6 +40,7 @@ class Server:
 
         wd = Watchdog(timeout_ms=300, on_lost=_mark_estopped)
         await wd.start()
+        poll_task = asyncio.create_task(self._poll_robot_status(ws, session))
         try:
             async for raw in ws:
                 try:
@@ -52,6 +53,11 @@ class Server:
         except websockets.ConnectionClosed:
             pass
         finally:
+            poll_task.cancel()
+            try:
+                await poll_task
+            except asyncio.CancelledError:
+                pass
             await wd.stop()
 
     async def _dispatch(self, ws, session: Session, wd: Watchdog, msg: dict) -> None:
@@ -64,6 +70,32 @@ class Server:
             await self._run_prompt(ws, session, msg.get("text", ""))
         elif t == "soft_stop":
             await self._handle_soft_stop(ws, session)
+
+    async def _poll_robot_status(self, ws, session):
+        """Poll robot-md-mcp every 2s. Detects latched joints (joint dropped from read_positions)."""
+        if self._mcp is None:
+            return
+        import json as _json
+        from .robot_status import parse_doctor_output
+        while True:
+            await asyncio.sleep(2.0)
+            try:
+                if "expected_joints" not in session.robot_status:
+                    rendered = await self._mcp.call_tool("render", {})
+                    manifest_text = (rendered.get("content") or [{}])[0].get("text", "{}")
+                    manifest = _json.loads(manifest_text) if manifest_text else {}
+                    joints = [j.get("name") for j in manifest.get("physics", {}).get("joints", []) if j.get("name")]
+                    session.robot_status["expected_joints"] = joints
+                result = await self._mcp.call_tool("validate", {})
+                result_text = (result.get("content") or [{}])[0].get("text", "{}")
+                parsed = parse_doctor_output(_json.loads(result_text), expected=session.robot_status["expected_joints"])
+                if parsed["latched"] and session.robot_status.get("servo_latched") != parsed["latched"]:
+                    session.robot_status = {**session.robot_status, "servo_latched": parsed["latched"]}
+                    await ws.send(_json.dumps({"v": 1, "type": "status", "robot_status": session.robot_status, "estopped": session.estopped}))
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                pass
 
     async def _handle_soft_stop(self, ws, session: Session) -> None:
         if self._mcp is not None:
