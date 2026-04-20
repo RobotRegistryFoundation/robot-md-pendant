@@ -3,6 +3,7 @@ import asyncio
 import contextlib
 import json
 from typing import AsyncIterator
+from urllib.parse import urlparse, parse_qs
 
 import websockets
 
@@ -12,6 +13,7 @@ from .session import Session
 class Server:
     def __init__(self, host: str = "0.0.0.0", port: int = 8765) -> None:
         self._host, self._port = host, port
+        self.sessions: dict[str, Session] = {}
 
     @contextlib.asynccontextmanager
     async def run(self) -> AsyncIterator[str]:
@@ -20,11 +22,19 @@ class Server:
             host, port = sock.getsockname()[:2]
             yield f"{host}:{port}"
 
-    async def _handle(self, ws: websockets.ServerConnection) -> None:
-        session = Session()
+    async def _handle(self, ws) -> None:
+        path = getattr(getattr(ws, "request", None), "path", None) or getattr(ws, "path", "")
+        pendant_id = self._extract_id(path)
+        session = self.sessions.setdefault(pendant_id, Session(pendant_id=pendant_id))
         await ws.send(json.dumps(session.hello_payload()))
         try:
             async for _ in ws:
-                pass  # further handling in later tasks
+                pass
         except websockets.ConnectionClosed:
             pass
+
+    @staticmethod
+    def _extract_id(path: str) -> str:
+        q = parse_qs(urlparse(path).query)
+        ids = q.get("id", ["unknown"])
+        return ids[0]
