@@ -83,5 +83,17 @@ esp_err_t audio_stop_record(void) {
     s_recording = false;
     return ESP_OK;
 }
-esp_err_t audio_play_chunk(const uint8_t *p, size_t n) { (void)p; (void)n; return ESP_ERR_NOT_SUPPORTED; }
-esp_err_t audio_stop_playback(void)            { return ESP_OK; }
+esp_err_t audio_play_chunk(const uint8_t *pcm, size_t n) {
+    size_t wrote = 0;
+    return i2s_channel_write(s_tx, pcm, n, &wrote, pdMS_TO_TICKS(50));
+}
+
+esp_err_t audio_stop_playback(void) {
+    // Flush TX with silence — simplest cancellation path.
+    static uint8_t silence[640] = {0};
+    size_t w;
+    for (int i = 0; i < 4; i++) {
+        i2s_channel_write(s_tx, silence, sizeof(silence), &w, 10);
+    }
+    return ESP_OK;
+}

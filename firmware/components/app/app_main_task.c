@@ -29,7 +29,13 @@ static void on_text(const char *data, size_t len) {
     }
 }
 
-static void on_bin(const uint8_t *data, size_t len) { (void)data; (void)len; /* Task 20 */ }
+static void on_bin(const uint8_t *data, size_t len) {
+    if (len < 2) return;
+    if (data[0] == 0x02) {
+        audio_play_chunk(data + 1, len - 1);
+    }
+    // 0x01 is outbound-only from pendant; ignore.
+}
 
 static void apply_hello(const char *json) {
     cJSON *root = cJSON_Parse(json);
