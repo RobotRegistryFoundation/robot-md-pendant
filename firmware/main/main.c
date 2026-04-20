@@ -10,6 +10,7 @@
 #include "app_state.h"
 #include "wifi_mgr.h"
 #include "provisioning.h"
+#include "ui.h"
 #include "lvgl.h"
 
 static const char *TAG = "main";
@@ -21,6 +22,7 @@ void app_main(void) {
     app_state_init();
     ESP_ERROR_CHECK(board_hw_init());
     ESP_ERROR_CHECK(display_lvgl_init());
+    ui_init();
 
     const esp_timer_create_args_t timer_args = {.callback = lvgl_tick_cb, .name = "lvgl_tick"};
     esp_timer_handle_t tick;
@@ -35,7 +37,8 @@ void app_main(void) {
         // does not return
     }
     ESP_LOGI(TAG, "creds found, ssid=%s", ssid);
-    // Wi-Fi connect + WS come in Task 12/13
+    ui_show_connecting(ssid);
+    // wifi_mgr_start + app_task_start come in Task 14
 
     while (1) {
         lv_timer_handler();

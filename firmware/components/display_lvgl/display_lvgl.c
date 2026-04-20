@@ -105,18 +105,6 @@ esp_err_t display_lvgl_init(void) {
     lv_obj_t *scr = lv_display_get_screen_active(s_disp);
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x0a0a0a), 0);
 
-    lv_obj_t *title = lv_label_create(scr);
-    lv_label_set_text(title, "robot-md-pendant");
-    lv_obj_set_style_text_color(title, lv_color_hex(0xffffff), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
-
-    lv_obj_t *btn = lv_btn_create(scr);
-    lv_obj_set_size(btn, 200, 60);
-    lv_obj_align(btn, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_t *btn_lbl = lv_label_create(btn);
-    lv_label_set_text(btn_lbl, "tap me");
-    lv_obj_center(btn_lbl);
-
     // Touch indicator dot (so we can see taps)
     lv_obj_t *dot = lv_obj_create(scr);
     lv_obj_set_size(dot, 40, 40);
