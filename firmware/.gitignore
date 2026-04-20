@@ -1,0 +1,6 @@
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+# dependencies.lock — often committed in real ESP-IDF projects, but for v0.1 we keep it untracked until the dep set stabilizes
+dependencies.lock
