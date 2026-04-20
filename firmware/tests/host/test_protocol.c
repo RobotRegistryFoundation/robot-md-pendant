@@ -28,10 +28,41 @@ static void test_emit_heartbeat(void) {
     printf("ok  test_emit_heartbeat\n");
 }
 
+static void test_parse_tool_call(void) {
+    msg_in_t m;
+    const char *js =
+        "{\"v\":1,\"type\":\"tool_call\",\"name\":\"execute_capability\","
+        "\"args\":{},\"status\":\"ok\",\"summary\":\"home:done\"}";
+    assert(protocol_parse(js, strlen(js), &m));
+    assert(m.type == MSG_TOOL_CALL);
+    assert(!strcmp(m.u.tool_call.name, "execute_capability"));
+    assert(!strcmp(m.u.tool_call.status, "ok"));
+    printf("ok  test_parse_tool_call\n");
+}
+
+static void test_parse_unknown_type_safe(void) {
+    msg_in_t m;
+    const char *js = "{\"v\":1,\"type\":\"made_up\"}";
+    assert(protocol_parse(js, strlen(js), &m));
+    assert(m.type == MSG_UNKNOWN);
+    printf("ok  test_parse_unknown_type_safe\n");
+}
+
+static void test_emit_chat_prompt_escapes_quotes(void) {
+    char buf[256];
+    int n = protocol_emit_chat_prompt(buf, sizeof(buf), "say \"hi\"");
+    assert(n > 0);
+    assert(strstr(buf, "\\\"hi\\\"") != NULL);
+    printf("ok  test_emit_chat_prompt_escapes_quotes\n");
+}
+
 int main(void) {
     test_parse_hello();
     test_parse_rejects_bad_version();
     test_emit_heartbeat();
-    printf("PASS 3/3\n");
+    test_parse_tool_call();
+    test_parse_unknown_type_safe();
+    test_emit_chat_prompt_escapes_quotes();
+    printf("PASS 6/6\n");
     return 0;
 }
