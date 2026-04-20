@@ -14,3 +14,6 @@ CONFIG_ESP_TASK_WDT_EN=y
 # via the native USB-CDC port (separate from /dev/ttyACM0 which is the CH343).
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED=y
+
+# LVGL v9: 16-bit color (RGB565) for the SH8601 panel
+CONFIG_LV_COLOR_DEPTH_16=y

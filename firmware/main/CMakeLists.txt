@@ -1,1 +1,1 @@
-idf_component_register(SRCS "main.c" INCLUDE_DIRS "." REQUIRES board_hw)
+idf_component_register(SRCS "main.c" INCLUDE_DIRS "." REQUIRES board_hw display_lvgl lvgl)
