@@ -12,13 +12,14 @@ from .watchdog import Watchdog
 
 
 class Server:
-    def __init__(self, host: str = "0.0.0.0", port: int = 8765, mcp=None, buttons: Optional[list] = None, agent_factory: Optional[Callable[[str], Any]] = None, whisper=None) -> None:
+    def __init__(self, host: str = "0.0.0.0", port: int = 8765, mcp=None, buttons: Optional[list] = None, agent_factory: Optional[Callable[[str], Any]] = None, whisper=None, piper=None) -> None:
         self._host, self._port = host, port
         self.sessions: dict[str, Session] = {}
         self._mcp = mcp
         self._buttons = buttons or []
         self._agent_factory = agent_factory
         self._whisper = whisper
+        self._piper = piper
 
     @contextlib.asynccontextmanager
     async def run(self) -> AsyncIterator[str]:
@@ -171,6 +172,12 @@ class Server:
                 await ws.send(json.dumps({"v": 1, "type": "tool_call", "name": ev.name, "args": ev.args, "status": ev.status, "summary": ev.summary}))
             elif isinstance(ev, MessageEvent):
                 await ws.send(json.dumps({"v": 1, "type": "chat_message", "role": ev.role, "text": ev.text}))
+                if self._piper is not None:
+                    try:
+                        async for chunk in self._piper.synthesize(ev.text):
+                            await ws.send(b"\x02" + chunk)
+                    except Exception:
+                        pass
 
     @staticmethod
     def _extract_id(path: str) -> str:
