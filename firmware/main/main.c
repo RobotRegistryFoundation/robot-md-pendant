@@ -1,11 +1,15 @@
 #include <stdio.h>
+#include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "nvs.h"
 #include "board_hw.h"
 #include "display_lvgl.h"
 #include "app_state.h"
+#include "wifi_mgr.h"
+#include "provisioning.h"
 #include "lvgl.h"
 
 static const char *TAG = "main";
@@ -21,7 +25,17 @@ void app_main(void) {
     const esp_timer_create_args_t timer_args = {.callback = lvgl_tick_cb, .name = "lvgl_tick"};
     esp_timer_handle_t tick;
     ESP_ERROR_CHECK(esp_timer_create(&timer_args, &tick));
-    ESP_ERROR_CHECK(esp_timer_start_periodic(tick, 2000));  // 2ms
+    ESP_ERROR_CHECK(esp_timer_start_periodic(tick, 2000));
+
+    ESP_ERROR_CHECK(wifi_mgr_init());
+    char ssid[32] = {0}, psk[64] = {0};
+    if (wifi_mgr_load_creds(ssid, sizeof(ssid), psk, sizeof(psk)) == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGI(TAG, "no creds — entering provisioning");
+        provisioning_run();
+        // does not return
+    }
+    ESP_LOGI(TAG, "creds found, ssid=%s", ssid);
+    // Wi-Fi connect + WS come in Task 12/13
 
     while (1) {
         lv_timer_handler();
