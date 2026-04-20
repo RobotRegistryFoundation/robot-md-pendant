@@ -20,6 +20,8 @@ def main():
             params = req["params"]
             if params["name"] == "estop":
                 respond(req["id"], {"content": [{"type": "text", "text": "ok"}]})
+            elif params["name"] == "estop_clear":
+                respond(req["id"], {"content": [{"type": "text", "text": "ok"}]})
             elif params["name"] == "execute_capability":
                 cap = params["arguments"].get("capability")
                 respond(req["id"], {"content": [{"type": "text", "text": f"{cap}:done"}]})

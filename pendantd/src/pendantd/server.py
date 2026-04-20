@@ -32,9 +32,17 @@ class Server:
         path = getattr(getattr(ws, "request", None), "path", None) or getattr(ws, "path", "")
         pendant_id = self._extract_id(path)
         session = self.sessions.get(pendant_id)
-        if session is None:
+        new_session = session is None
+        if new_session:
             session = Session(pendant_id=pendant_id, buttons=list(self._buttons))
             self.sessions[pendant_id] = session
+        elif session.estopped:
+            if self._mcp is not None:
+                try:
+                    await self._mcp.call_tool("estop_clear", {})
+                except Exception:
+                    pass
+            session.estopped = False
         await ws.send(json.dumps(session.hello_payload()))
 
         def _mark_estopped() -> None:
