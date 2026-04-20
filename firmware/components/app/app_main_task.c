@@ -1,6 +1,7 @@
 #include "app_task.h"
 #include "app_state.h"
 #include "ws_client.h"
+#include "wifi_mgr.h"
 #include "protocol.h"
 #include "ui.h"
 #include "es8311_audio.h"
@@ -101,6 +102,23 @@ static void app_loop(void *arg) {
             }
             default: break;
             }
+        }
+        static bool last_ws_connected = false;
+        bool ws_now = ws_client_is_connected();
+        if (ws_now != last_ws_connected) {
+            if (ws_now) {
+                ui_show_dashboard();
+            } else {
+                ui_show_error("Pi unreachable");
+            }
+            last_ws_connected = ws_now;
+        }
+        if (!wifi_mgr_is_connected()) {
+            app_state_lock();
+            g_app.conn = CONN_LOST;
+            const char *ssid_snapshot = g_app.wifi_ssid;
+            app_state_unlock();
+            ui_show_connecting(ssid_snapshot);
         }
     }
 }
