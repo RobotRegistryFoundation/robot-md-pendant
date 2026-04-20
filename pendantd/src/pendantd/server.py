@@ -20,7 +20,6 @@ class Server:
         self._agent_factory = agent_factory
         self._whisper = whisper
         self._piper = piper
-        self._tasks: set[asyncio.Task] = set()
 
     @contextlib.asynccontextmanager
     async def run(self) -> AsyncIterator[str]:
@@ -47,6 +46,7 @@ class Server:
         from .voice.buffer import AudioBuffer
         buf = AudioBuffer()
         recording = False
+        tasks: set[asyncio.Task] = set()
         try:
             async for raw in ws:
                 if isinstance(raw, (bytes, bytearray)):
@@ -71,11 +71,11 @@ class Server:
                             try:
                                 text = await self._whisper.transcribe(data)
                                 if text.strip():
-                                    await self._run_prompt(ws, session, text)
+                                    self._launch(tasks, self._run_prompt(ws, session, text))
                             except Exception:
                                 pass
                     continue
-                await self._dispatch(ws, session, wd, msg)
+                await self._dispatch(ws, session, wd, msg, tasks)
         except websockets.ConnectionClosed:
             pass
         finally:
@@ -85,8 +85,23 @@ class Server:
             except asyncio.CancelledError:
                 pass
             await wd.stop()
+            for t in list(tasks):
+                t.cancel()
+            for t in list(tasks):
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    pass
 
-    async def _dispatch(self, ws, session: Session, wd: Watchdog, msg: dict) -> None:
+    def _launch(self, tasks: set, coro) -> asyncio.Task:
+        task = asyncio.ensure_future(coro)
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+        return task
+
+    async def _dispatch(self, ws, session: Session, wd: Watchdog, msg: dict, tasks: set) -> None:
         t = msg.get("type")
         if t == "barge_in":
             active = session._piper_active
@@ -99,11 +114,9 @@ class Server:
         if t == "heartbeat":
             wd.ping()
         elif t == "button_press":
-            await self._handle_button(ws, session, msg)
+            await self._handle_button(ws, session, msg, tasks)
         elif t == "chat_prompt":
-            task = asyncio.create_task(self._run_prompt(ws, session, msg.get("text", "")))
-            self._tasks.add(task)
-            task.add_done_callback(self._tasks.discard)
+            self._launch(tasks, self._run_prompt(ws, session, msg.get("text", "")))
         elif t == "soft_stop":
             await self._handle_soft_stop(ws, session)
 
@@ -142,7 +155,7 @@ class Server:
         session.estopped = True
         await ws.send(json.dumps({"v": 1, "type": "status", "robot_status": session.robot_status, "estopped": True}))
 
-    async def _handle_button(self, ws, session: Session, msg: dict) -> None:
+    async def _handle_button(self, ws, session: Session, msg: dict, tasks: set) -> None:
         try:
             idx = int(msg["id"])
         except (KeyError, ValueError, TypeError):
@@ -151,7 +164,7 @@ class Server:
             return
         btn = session.buttons[idx]
         if btn.get("type") == "prompt":
-            await self._run_prompt(ws, session, btn.get("prompt", ""))
+            self._launch(tasks, self._run_prompt(ws, session, btn.get("prompt", "")))
             return
         if btn.get("type") == "direct_mcp" and self._mcp is not None:
             tool = btn["tool"]
