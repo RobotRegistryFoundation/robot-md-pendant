@@ -13,3 +13,5 @@ void ui_set_estopped_banner(bool on);
 typedef void (*ui_button_pressed_cb_t)(uint8_t index);
 void ui_set_button_pressed_cb(ui_button_pressed_cb_t cb);
 void ui_rebuild_button_grid(void);   // reads g_app.buttons[]
+typedef void (*ui_soft_stop_cb_t)(void);
+void ui_set_soft_stop_cb(ui_soft_stop_cb_t cb);

@@ -98,9 +98,18 @@ static void on_button_press(uint8_t index) {
     if (n > 0) ws_client_send_text(buf, n);
 }
 
+static void on_soft_stop(void) {
+    // Paint banner immediately — don't wait for Pi confirmation.
+    ui_set_estopped_banner(true);
+    char buf[64];
+    int n = protocol_emit_soft_stop(buf, sizeof(buf));
+    if (n > 0) ws_client_send_text(buf, n);
+}
+
 esp_err_t app_task_start(const char *ws_url) {
     s_inbox = xQueueCreate(32, sizeof(inbox_item_t));
     ESP_ERROR_CHECK(ws_client_init(ws_url, on_text, on_bin));
+    ui_set_soft_stop_cb(on_soft_stop);
     ui_set_button_pressed_cb(on_button_press);
     ESP_ERROR_CHECK(ws_client_start());
     xTaskCreate(app_loop, "app_loop", 6144, NULL, 5, NULL);

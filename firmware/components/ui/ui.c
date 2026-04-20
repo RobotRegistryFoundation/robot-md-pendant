@@ -8,6 +8,11 @@
 static lv_obj_t *s_connecting = NULL, *s_dashboard = NULL, *s_error = NULL;
 static lv_obj_t *s_status_lbl = NULL, *s_chat_list = NULL, *s_estopped_banner = NULL;
 
+static ui_soft_stop_cb_t s_stop_cb = NULL;
+void ui_set_soft_stop_cb(ui_soft_stop_cb_t cb) { s_stop_cb = cb; }
+
+static void stop_ev(lv_event_t *e) { (void)e; if (s_stop_cb) s_stop_cb(); }
+
 static void build_connecting(void) {
     s_connecting = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(s_connecting, lv_color_hex(0x0a0a0a), 0);
@@ -58,7 +63,7 @@ static void build_dashboard(void) {
     lv_label_set_text(stop_lbl, "STOP");
     lv_obj_set_style_text_color(stop_lbl, lv_color_hex(0xffffff), 0);
     lv_obj_center(stop_lbl);
-    // Task 16 wires the event.
+    lv_obj_add_event_cb(stop_btn, stop_ev, LV_EVENT_CLICKED, NULL);
 }
 
 static void build_error(void) {
