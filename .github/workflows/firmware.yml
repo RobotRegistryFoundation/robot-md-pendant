@@ -1,0 +1,23 @@
+name: firmware
+on: [push, pull_request]
+jobs:
+  firmware-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.1
+          target: esp32c6
+          path: firmware
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cmake libcjson-dev build-essential
+      - name: build + run host tests
+        working-directory: firmware/tests/host
+        run: |
+          cmake -B build
+          cmake --build build
+          cd build && ctest --output-on-failure
