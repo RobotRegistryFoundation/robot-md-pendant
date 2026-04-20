@@ -16,7 +16,7 @@ class MCPBridge:
             *self._command,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
         )
         self._reader_task = asyncio.create_task(self._reader())
         await self._rpc("initialize", {"protocolVersion": "2024-11-05", "capabilities": {}})
