@@ -32,6 +32,7 @@ static void on_text(const char *data, size_t len) {
 static void on_bin(const uint8_t *data, size_t len) {
     if (len < 2) return;
     if (data[0] == 0x02) {
+        app_state_lock(); g_app.speaker_active = true; app_state_unlock();
         audio_play_chunk(data + 1, len - 1);
     }
     // 0x01 is outbound-only from pendant; ignore.
@@ -93,6 +94,11 @@ static void app_loop(void *arg) {
             case MSG_STATUS:
                 ui_set_estopped_banner(m.u.status.estopped);
                 break;
+            case MSG_VOICE_STATE: {
+                bool speaking = (strcmp(m.u.voice_state.state, "speaking") == 0);
+                app_state_lock(); g_app.speaker_active = speaking; app_state_unlock();
+                break;
+            }
             default: break;
             }
         }
@@ -132,6 +138,13 @@ static void mic_rx(const uint8_t *pcm, size_t n) {
 static void on_ptt(bool pressed) {
     char buf[64];
     if (pressed) {
+        bool was_speaking;
+        app_state_lock(); was_speaking = g_app.speaker_active; app_state_unlock();
+        if (was_speaking) {
+            audio_stop_playback();
+            int n = protocol_emit_barge_in(buf, sizeof(buf));
+            if (n > 0) ws_client_send_text(buf, n);
+        }
         int n = protocol_emit_voice_state(buf, sizeof(buf), "recording");
         if (n > 0) ws_client_send_text(buf, n);
         audio_start_record(mic_rx);
