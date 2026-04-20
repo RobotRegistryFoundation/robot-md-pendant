@@ -17,3 +17,5 @@ typedef void (*ui_soft_stop_cb_t)(void);
 void ui_set_soft_stop_cb(ui_soft_stop_cb_t cb);
 typedef void (*ui_chat_submit_cb_t)(const char *text);
 void ui_set_chat_submit_cb(ui_chat_submit_cb_t cb);
+typedef void (*ui_ptt_cb_t)(bool pressed);
+void ui_set_ptt_cb(ui_ptt_cb_t cb);

@@ -3,6 +3,7 @@
 #include "ws_client.h"
 #include "protocol.h"
 #include "ui.h"
+#include "es8311_audio.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -113,12 +114,35 @@ static void on_soft_stop(void) {
     if (n > 0) ws_client_send_text(buf, n);
 }
 
+static void mic_rx(const uint8_t *pcm, size_t n) {
+    // Binary WS frame: 0x01 type tag + PCM payload.
+    static uint8_t frame[1 + 640];
+    frame[0] = 0x01;
+    size_t cp = n < 640 ? n : 640;
+    memcpy(frame + 1, pcm, cp);
+    ws_client_send_bin(frame, cp + 1);
+}
+
+static void on_ptt(bool pressed) {
+    char buf[64];
+    if (pressed) {
+        int n = protocol_emit_voice_state(buf, sizeof(buf), "recording");
+        if (n > 0) ws_client_send_text(buf, n);
+        audio_start_record(mic_rx);
+    } else {
+        audio_stop_record();
+        int n = protocol_emit_voice_state(buf, sizeof(buf), "idle");
+        if (n > 0) ws_client_send_text(buf, n);
+    }
+}
+
 esp_err_t app_task_start(const char *ws_url) {
     s_inbox = xQueueCreate(32, sizeof(inbox_item_t));
     ESP_ERROR_CHECK(ws_client_init(ws_url, on_text, on_bin));
     ui_set_soft_stop_cb(on_soft_stop);
     ui_set_button_pressed_cb(on_button_press);
     ui_set_chat_submit_cb(on_chat_submit);
+    ui_set_ptt_cb(on_ptt);
     ESP_ERROR_CHECK(ws_client_start());
     xTaskCreate(app_loop, "app_loop", 6144, NULL, 5, NULL);
     return ESP_OK;

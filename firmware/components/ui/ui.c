@@ -13,6 +13,16 @@ void ui_set_soft_stop_cb(ui_soft_stop_cb_t cb) { s_stop_cb = cb; }
 
 static void stop_ev(lv_event_t *e) { (void)e; if (s_stop_cb) s_stop_cb(); }
 
+static ui_ptt_cb_t s_ptt_cb = NULL;
+void ui_set_ptt_cb(ui_ptt_cb_t cb) { s_ptt_cb = cb; }
+
+static void ptt_ev(lv_event_t *e) {
+    lv_event_code_t c = lv_event_get_code(e);
+    if (!s_ptt_cb) return;
+    if (c == LV_EVENT_PRESSED)       s_ptt_cb(true);
+    else if (c == LV_EVENT_RELEASED) s_ptt_cb(false);
+}
+
 static ui_chat_submit_cb_t s_chat_cb = NULL;
 static lv_obj_t *s_chat_ta = NULL, *s_kb = NULL;
 
@@ -84,6 +94,16 @@ static void build_dashboard(void) {
     lv_obj_set_style_text_color(stop_lbl, lv_color_hex(0xffffff), 0);
     lv_obj_center(stop_lbl);
     lv_obj_add_event_cb(stop_btn, stop_ev, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *mic_btn = lv_btn_create(s_dashboard);
+    lv_obj_set_size(mic_btn, 80, 60);
+    lv_obj_align(mic_btn, LV_ALIGN_BOTTOM_RIGHT, -140, -10);
+    lv_obj_set_style_bg_color(mic_btn, lv_color_hex(0x336699), 0);
+    lv_obj_t *mic_lbl = lv_label_create(mic_btn);
+    lv_label_set_text(mic_lbl, "mic hold");
+    lv_obj_center(mic_lbl);
+    lv_obj_add_event_cb(mic_btn, ptt_ev, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(mic_btn, ptt_ev, LV_EVENT_RELEASED, NULL);
 
     s_chat_ta = lv_textarea_create(s_dashboard);
     lv_obj_set_size(s_chat_ta, 368, 36);

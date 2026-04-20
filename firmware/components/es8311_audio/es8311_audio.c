@@ -6,9 +6,26 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_check.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "audio";
 static i2s_chan_handle_t s_tx = NULL, s_rx = NULL;
+
+static audio_rx_cb_t s_rx_cb = NULL;
+static TaskHandle_t s_rx_task = NULL;
+static volatile bool s_recording = false;
+
+static void rx_task(void *arg) {
+    uint8_t buf[640];  // 20ms @ 16kHz mono s16le = 320 samples * 2 bytes = 640
+    while (s_recording) {
+        size_t read = 0;
+        i2s_channel_read(s_rx, buf, sizeof(buf), &read, portMAX_DELAY);
+        if (read > 0 && s_rx_cb) s_rx_cb(buf, read);
+    }
+    s_rx_task = NULL;
+    vTaskDelete(NULL);
+}
 
 esp_err_t audio_init(void)
 {
@@ -54,7 +71,17 @@ esp_err_t audio_init(void)
     return ESP_OK;
 }
 
-esp_err_t audio_start_record(audio_rx_cb_t cb) { (void)cb; return ESP_ERR_NOT_SUPPORTED; }
-esp_err_t audio_stop_record(void)              { return ESP_OK; }
+esp_err_t audio_start_record(audio_rx_cb_t cb) {
+    if (s_recording) return ESP_ERR_INVALID_STATE;
+    s_rx_cb = cb;
+    s_recording = true;
+    xTaskCreate(rx_task, "audio_rx", 4096, NULL, 6, &s_rx_task);
+    return ESP_OK;
+}
+
+esp_err_t audio_stop_record(void) {
+    s_recording = false;
+    return ESP_OK;
+}
 esp_err_t audio_play_chunk(const uint8_t *p, size_t n) { (void)p; (void)n; return ESP_ERR_NOT_SUPPORTED; }
 esp_err_t audio_stop_playback(void)            { return ESP_OK; }
