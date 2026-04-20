@@ -5,6 +5,7 @@
 #include "esp_timer.h"
 #include "board_hw.h"
 #include "display_lvgl.h"
+#include "app_state.h"
 #include "lvgl.h"
 
 static const char *TAG = "main";
@@ -13,6 +14,7 @@ static void lvgl_tick_cb(void *arg) { lv_tick_inc(2); }
 
 void app_main(void) {
     ESP_LOGI(TAG, "boot");
+    app_state_init();
     ESP_ERROR_CHECK(board_hw_init());
     ESP_ERROR_CHECK(display_lvgl_init());
 
