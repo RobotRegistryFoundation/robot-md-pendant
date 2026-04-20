@@ -62,6 +62,17 @@ class Server:
             await self._handle_button(ws, session, msg)
         elif t == "chat_prompt":
             await self._run_prompt(ws, session, msg.get("text", ""))
+        elif t == "soft_stop":
+            await self._handle_soft_stop(ws, session)
+
+    async def _handle_soft_stop(self, ws, session: Session) -> None:
+        if self._mcp is not None:
+            try:
+                await self._mcp.call_tool("estop", {})
+            except Exception:
+                pass
+        session.estopped = True
+        await ws.send(json.dumps({"v": 1, "type": "status", "robot_status": session.robot_status, "estopped": True}))
 
     async def _handle_button(self, ws, session: Session, msg: dict) -> None:
         try:
