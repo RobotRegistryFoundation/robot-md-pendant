@@ -1,0 +1,15 @@
+[Unit]
+Description=robot-md-pendant Pi service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=ROBOT_MD_PATH=%h/robot-md/ROBOT.md
+Environment=ANTHROPIC_API_KEY=CHANGEME
+ExecStart=/usr/bin/python3 -m pendantd
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
