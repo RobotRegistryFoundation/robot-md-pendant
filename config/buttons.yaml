@@ -1,0 +1,4 @@
+buttons:
+  - {label: "Home", type: "prompt", prompt: "Home the arm"}
+  - {label: "Pick LEGO", type: "direct_mcp", tool: "execute_capability", args: {capability: "pick", target: "red_lego"}}
+  - {label: "Release", type: "direct_mcp", tool: "execute_capability", args: {capability: "release"}}
