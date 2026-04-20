@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robot-md-pendant/schemas/v1/chat_prompt.schema.json",
+  "title": "chat_prompt",
+  "type": "object",
+  "required": ["v", "type", "text"],
+  "properties": {
+    "v":    {"const": 1},
+    "type": {"const": "chat_prompt"},
+    "text": {"type": "string"}
+  },
+  "additionalProperties": false
+}

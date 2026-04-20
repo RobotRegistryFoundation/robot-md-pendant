@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robot-md-pendant/schemas/v1/soft_stop.schema.json",
+  "title": "soft_stop",
+  "type": "object",
+  "required": ["v", "type"],
+  "properties": {
+    "v":    {"const": 1},
+    "type": {"const": "soft_stop"}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robot-md-pendant/schemas/v1/chat_message.schema.json",
+  "title": "chat_message",
+  "type": "object",
+  "required": ["v", "type", "role", "text"],
+  "properties": {
+    "v":    {"const": 1},
+    "type": {"const": "chat_message"},
+    "role": {"enum": ["assistant", "system"]},
+    "text": {"type": "string"}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robot-md-pendant/schemas/v1/barge_in.schema.json",
+  "title": "barge_in",
+  "type": "object",
+  "required": ["v", "type"],
+  "properties": {
+    "v":    {"const": 1},
+    "type": {"const": "barge_in"}
+  },
+  "additionalProperties": false
+}
