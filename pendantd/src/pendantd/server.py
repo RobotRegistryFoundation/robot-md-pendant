@@ -12,12 +12,13 @@ from .watchdog import Watchdog
 
 
 class Server:
-    def __init__(self, host: str = "0.0.0.0", port: int = 8765, mcp=None, buttons: Optional[list] = None, agent_factory: Optional[Callable[[str], Any]] = None) -> None:
+    def __init__(self, host: str = "0.0.0.0", port: int = 8765, mcp=None, buttons: Optional[list] = None, agent_factory: Optional[Callable[[str], Any]] = None, whisper=None) -> None:
         self._host, self._port = host, port
         self.sessions: dict[str, Session] = {}
         self._mcp = mcp
         self._buttons = buttons or []
         self._agent_factory = agent_factory
+        self._whisper = whisper
 
     @contextlib.asynccontextmanager
     async def run(self) -> AsyncIterator[str]:
@@ -41,13 +42,36 @@ class Server:
         wd = Watchdog(timeout_ms=300, on_lost=_mark_estopped)
         await wd.start()
         poll_task = asyncio.create_task(self._poll_robot_status(ws, session))
+        from .voice.buffer import AudioBuffer
+        buf = AudioBuffer()
+        recording = False
         try:
             async for raw in ws:
+                if isinstance(raw, (bytes, bytearray)):
+                    # binary audio frame: 1-byte type tag + payload
+                    if recording and raw and raw[0] == 0x01:
+                        buf.append(bytes(raw[1:]))
+                    continue
                 try:
                     msg = json.loads(raw)
                 except json.JSONDecodeError:
                     continue
                 if not isinstance(msg, dict):
+                    continue
+                if msg.get("type") == "voice_state":
+                    state = msg.get("state")
+                    if state == "recording":
+                        recording = True
+                    elif state == "idle" and recording:
+                        recording = False
+                        data = buf.drain()
+                        if data and self._whisper is not None:
+                            try:
+                                text = await self._whisper.transcribe(data)
+                                if text.strip():
+                                    await self._run_prompt(ws, session, text)
+                            except Exception:
+                                pass
                     continue
                 await self._dispatch(ws, session, wd, msg)
         except websockets.ConnectionClosed:
