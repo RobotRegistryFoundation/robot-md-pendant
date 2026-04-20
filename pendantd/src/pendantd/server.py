@@ -8,6 +8,7 @@ from urllib.parse import urlparse, parse_qs
 import websockets
 
 from .session import Session
+from .watchdog import Watchdog
 
 
 class Server:
@@ -27,11 +28,24 @@ class Server:
         pendant_id = self._extract_id(path)
         session = self.sessions.setdefault(pendant_id, Session(pendant_id=pendant_id))
         await ws.send(json.dumps(session.hello_payload()))
+
+        def _mark_estopped() -> None:
+            session.estopped = True
+
+        wd = Watchdog(timeout_ms=300, on_lost=_mark_estopped)
+        await wd.start()
         try:
-            async for _ in ws:
-                pass
+            async for raw in ws:
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(msg, dict) and msg.get("type") == "heartbeat":
+                    wd.ping()
         except websockets.ConnectionClosed:
             pass
+        finally:
+            await wd.stop()
 
     @staticmethod
     def _extract_id(path: str) -> str:

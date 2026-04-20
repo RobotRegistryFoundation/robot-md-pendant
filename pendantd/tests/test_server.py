@@ -25,3 +25,13 @@ async def test_pendant_id_routed_to_session():
             await ws.recv()  # hello
         # server should record the session
         assert "abc12345" in server.sessions
+
+
+@pytest.mark.asyncio
+async def test_missed_heartbeat_marks_session_estopped():
+    server = Server(host="127.0.0.1", port=0)
+    async with server.run() as addr:
+        async with websockets.connect(f"ws://{addr}?id=test") as ws:
+            await ws.recv()  # hello
+            await asyncio.sleep(0.6)  # exceed 300ms watchdog
+    assert server.sessions["test"].estopped
