@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import array
+import asyncio
 import math
 from dataclasses import dataclass
 from typing import Protocol
@@ -19,7 +20,7 @@ class _Outputable(Protocol):
     async def stop(self) -> None: ...
 
 
-@dataclass
+@dataclass(frozen=True)
 class LoopbackResult:
     recorded_bytes: int
     recorded_pcm: bytes
@@ -37,19 +38,40 @@ def _peak_dbfs(pcm: bytes) -> float:
 
 
 async def record_and_play(
-    inp: _Inputable, out: _Outputable, seconds: float, samplerate: int = 16000,
+    inp: _Inputable,
+    out: _Outputable,
+    seconds: float,
+    samplerate: int = 16000,
+    read_timeout: float = 1.0,
 ) -> LoopbackResult:
+    """Record up to `seconds` of audio, then play it back.
+
+    `read_timeout` bounds each individual `inp.read()` call. If a single read
+    takes longer than `read_timeout`, the recording loop exits early and
+    returns whatever was captured (may be shorter than the requested duration).
+    This prevents hangs when the input stream stalls or the device disappears.
+    """
     target = int(seconds * samplerate * 2)  # bytes (s16 mono)
     await inp.start()
     buf = bytearray()
-    while len(buf) < target:
-        chunk = await inp.read()
-        if chunk:
-            buf.extend(chunk)
-    await inp.stop()
+    try:
+        while len(buf) < target:
+            try:
+                chunk = await asyncio.wait_for(inp.read(), timeout=read_timeout)
+            except asyncio.TimeoutError:
+                break
+            if chunk:
+                buf.extend(chunk)
+            else:
+                # Empty chunk — input stream is alive but producing nothing.
+                # Yield once so a slow producer can fill the queue, then check again.
+                await asyncio.sleep(0)
+    finally:
+        await inp.stop()
     pcm = bytes(buf[:target])
     await out.start()
-    await out.write(pcm)
+    if pcm:
+        await out.write(pcm)
     await out.stop()
     return LoopbackResult(
         recorded_bytes=len(pcm),
