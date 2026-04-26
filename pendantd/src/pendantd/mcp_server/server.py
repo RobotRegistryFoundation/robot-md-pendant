@@ -6,7 +6,7 @@ from typing import Any, Awaitable, Callable
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
+from mcp.types import CallToolResult, Tool, TextContent
 
 
 Tool_ = Callable[[dict], Awaitable[dict]]
@@ -81,17 +81,30 @@ def make_server(ipc: Any) -> Server:
         return TOOL_DEFS
 
     @server.call_tool()
-    async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    async def call_tool(name: str, arguments: dict) -> CallToolResult:
+        # Return CallToolResult consistently so the MCP envelope always carries
+        # isError=True on failures — agents can detect errors reliably (I2).
         if name not in tools:
-            return [TextContent(type="text", text=f"unknown tool: {name}")]
+            return CallToolResult(
+                isError=True,
+                content=[TextContent(type="text", text=f"unknown tool: {name}")],
+            )
         try:
             result = await tools[name](arguments or {})
         except ConnectionError as e:
-            return [TextContent(type="text", text=str(e))]
+            return CallToolResult(
+                isError=True,
+                content=[TextContent(type="text", text=str(e))],
+            )
         except Exception as e:
-            return [TextContent(type="text", text=f"error: {e}")]
+            return CallToolResult(
+                isError=True,
+                content=[TextContent(type="text", text=f"error: {e}")],
+            )
         import json as _json
-        return [TextContent(type="text", text=_json.dumps(result))]
+        return CallToolResult(
+            content=[TextContent(type="text", text=_json.dumps(result))],
+        )
 
     return server
 

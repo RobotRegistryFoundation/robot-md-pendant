@@ -59,6 +59,7 @@ class VoiceLoop:
         self._stop = asyncio.Event()
         self._paused: asyncio.Event = asyncio.Event()  # set = paused; clear = running
         self._announce_q: asyncio.Queue[str] = asyncio.Queue()
+        self.last_latency_ms: float | None = None
 
     def _set_state(self, s: LoopState) -> None:
         self.state = s
@@ -139,9 +140,11 @@ class VoiceLoop:
                     continue
 
                 self.last_wake_at = loop.time()
+                start_time = self.last_wake_at
                 self._set_state(LoopState.THINKING)
                 try:
                     await self._handle_utterance()
+                    self.last_latency_ms = (loop.time() - start_time) * 1000
                 except Exception:
                     log.exception("VoiceLoop: utterance pipeline failed")
                 finally:

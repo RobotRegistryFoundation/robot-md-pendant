@@ -15,7 +15,7 @@ from .voice.loop import VoiceLoop
 from .voice.piper import Piper
 from .voice.wake import StreamingWakeMatcher
 from .voice.whisper import Whisper
-from .voice_cfg import load_voice_cfg, VoiceConfigError
+from .voice_cfg import load_voice_cfg, VoiceCfgWatcher, VoiceConfigError
 
 log = logging.getLogger(__name__)
 
@@ -143,6 +143,7 @@ def _build_control_handlers(router: AudioRouter, voice_loop: VoiceLoop, cfg_path
             "current_output": router.active_output.__dict__ if router.active_output else None,
             "last_wake_at": voice_loop.last_wake_at,
             "last_utterance": voice_loop.last_utterance,
+            "latency_ms": voice_loop.last_latency_ms,
         },
         "voice.set_wake_aliases": _set_aliases,
         "voice.test_wake": _voice_test_wake,
@@ -178,6 +179,7 @@ async def async_main() -> int:
         voice_loop: VoiceLoop | None = None
         router: AudioRouter | None = None
         watcher: DeviceWatcher | None = None
+        cfg_watcher: VoiceCfgWatcher | None = None
         control: ControlSocketServer | None = None
 
         if cfg is not None:
@@ -250,14 +252,51 @@ async def async_main() -> int:
                 piper=piper,
             )
 
+            def _on_voice_cfg_change(new_cfg: dict) -> None:
+                assert router is not None and voice_loop is not None
+                pin_changed = False
+                if new_cfg.get("input_device") != cfg["input_device"]:
+                    router.set_pin("input", new_cfg["input_device"] or "")
+                    pin_changed = True
+                if new_cfg.get("output_device") != cfg["output_device"]:
+                    router.set_pin("output", new_cfg["output_device"] or "")
+                    pin_changed = True
+                if pin_changed:
+                    asyncio.create_task(router.update(list_devices()))
+                new_vocab = ["claude"]
+                if new_cfg.get("robot_name"):
+                    new_vocab.append(new_cfg["robot_name"])
+                new_vocab.extend(new_cfg.get("wake_aliases", []))
+                if new_vocab != list(voice_loop._wake.vocabulary):
+                    voice_loop._wake.set_vocabulary(new_vocab)
+                if new_cfg.get("sample_rate") != cfg["sample_rate"] or new_cfg.get("tts_voice") != cfg["tts_voice"]:
+                    log.warning("voice.yaml: sample_rate/tts_voice changes require pendantd restart")
+                cfg.clear()
+                cfg.update(new_cfg)
+
+            cfg_watcher = VoiceCfgWatcher(cfg_path, on_change=_on_voice_cfg_change)
+            await cfg_watcher.start()
+
             async def on_device_change(reason: str) -> None:
                 assert router is not None and voice_loop is not None
                 new_devs = list_devices()
+                prev_in = router.active_input.name if router.active_input else None
                 prev_out = router.active_output.name if router.active_output else None
                 await router.update(new_devs)
+                new_in = router.active_input.name if router.active_input else None
                 new_out = router.active_output.name if router.active_output else None
-                if new_out and new_out != prev_out:
+
+                if reason == "pendant-connected":
+                    await voice_loop.announce("Pendant connected.")
+                elif reason == "pendant-disconnected":
+                    await voice_loop.announce("Pendant disconnected.")
+                elif new_out and new_out != prev_out:
                     await voice_loop.announce(f"Now using {new_out}.")
+                elif prev_out and not new_out:
+                    await voice_loop.announce("Switched to built-in audio.")
+                elif new_in and new_in != prev_in:
+                    # Quieter notice for input-only changes
+                    log.info("input device changed: %s -> %s", prev_in, new_in)
 
             # DeviceWatcher must be created inside the running asyncio loop.
             watcher = DeviceWatcher(on_change=on_device_change, debounce_ms=300)
@@ -290,6 +329,8 @@ async def async_main() -> int:
     finally:
         if control is not None:
             await control.stop()
+        if cfg_watcher is not None:
+            await cfg_watcher.stop()
         if watcher is not None:
             await watcher.stop()
         if router is not None:
