@@ -80,6 +80,16 @@ class StreamingWakeMatcher:
         return np.frombuffer(pcm, dtype=np.int16).astype("float32") / 32768.0
 
     def _transcribe(self, pcm: bytes) -> str:
+        """Transcribe PCM bytes to text.
+
+        Tries `model.transcribe(bytes)` first (works for test doubles that
+        index pcm directly). On TypeError/ValueError — the real
+        faster-whisper.WhisperModel rejects bytes — falls back to converting
+        PCM to a float32 numpy array (-1..1) and retrying.
+
+        Other exceptions (AttributeError, RuntimeError, etc.) propagate to
+        the caller; only the bytes→ndarray contract mismatch is handled here.
+        """
         # Try passing raw bytes first (for fake/stub models that key on bytes).
         # Fall back to numpy conversion for real faster-whisper WhisperModel.
         try:

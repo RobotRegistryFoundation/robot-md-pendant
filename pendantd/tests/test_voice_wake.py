@@ -67,3 +67,27 @@ def test_matcher_with_real_recordings_for_claude():
     model = WhisperModel("tiny.en", compute_type="int8")
     m = StreamingWakeMatcher(model=model, vocabulary=["claude", "bob"])
     assert any(h["phrase"] == "claude" for h in m.feed(pcm))
+
+
+def test_matcher_falls_back_to_numpy_when_model_rejects_bytes():
+    """Real faster-whisper WhisperModel raises on bytes — _transcribe must
+    convert to a float32 ndarray and retry. Without this fallback, production
+    would silently fail to transcribe."""
+    seen_types: list[type] = []
+
+    class StrictWhisper:
+        """Simulates real WhisperModel: rejects bytes, accepts ndarray."""
+        def transcribe(self, pcm, **kw):
+            seen_types.append(type(pcm))
+            if isinstance(pcm, (bytes, bytearray)):
+                raise TypeError("WhisperModel.transcribe expects ndarray, not bytes")
+            return ([type("Seg", (), {"text": " bob"})()], None)
+
+    pcm = b"\x00\x01" * 800  # 1.6 KB even-length so frombuffer succeeds
+    m = StreamingWakeMatcher(model=StrictWhisper(), vocabulary=["claude", "bob"])
+    hits = m.feed(pcm)
+    # Both code paths fired: bytes attempt (raised TypeError), then ndarray
+    assert len(seen_types) == 2
+    assert seen_types[0] in (bytes, bytearray)
+    assert seen_types[1] is not bytes  # must be ndarray on the retry
+    assert hits == [{"phrase": "bob", "transcript": "bob"}]
