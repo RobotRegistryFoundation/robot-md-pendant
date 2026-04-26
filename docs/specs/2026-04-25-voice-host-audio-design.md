@@ -332,8 +332,9 @@ System packages (documented in README; not installed by Python): `portaudio19-de
 
 ## rcan-spec issue (filed, not implemented here)
 
-- Repo: `RobotRegistryFoundation/rcan-spec`
+- Repo: `continuonai/rcan-spec`
 - Title: **"Optional `voice:` block for ROBOT.md — wake aliases, language, TTS voice"**
+- Filed 2026-04-25 as [continuonai/rcan-spec#197](https://github.com/continuonai/rcan-spec/issues/197)
 - Body: links to this design as motivation. Schema sketch:
 
   ```yaml
