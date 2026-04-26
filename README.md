@@ -30,6 +30,39 @@ A dashboard on the same screen shows live robot state: last vision detection, cu
 - **Host:** Raspberry Pi 5 (Pi 4 possible but voice latency increases).
 - **Robot:** any robot with a valid `ROBOT.md` and a `robot-md-mcp`-compatible driver. Initial target: SO-ARM101.
 
+## Host-audio voice path (Pi-direct)
+
+When the ESP32-C6 pendant isn't connected (or while waiting on hardware),
+pendantd can drive voice through USB audio devices on the Pi itself.
+
+**System packages (Pi 5):**
+```
+sudo apt-get install -y portaudio19-dev libasound2-dev libportaudio2
+```
+
+**Initial setup:** run `robot-md init` and complete the `voice_setup`
+phase. It detects devices, lets you pick (or accepts auto-pick), and
+writes `.robot-md/voice.yaml`.
+
+**Runtime tools (MCP):** register `pendant-mcp` with Claude Code:
+```
+claude mcp add pendant-mcp -- pendant-mcp
+```
+Tools: `audio.list_devices`, `audio.set_input/output`,
+`audio.test_loopback`, `audio.test_tts`, `voice.start/stop/status`,
+`voice.set_wake_aliases`, `voice.test_wake`.
+
+**Pinned vs auto:** `voice.yaml` accepts substring patterns for
+`input_device` / `output_device`. Empty string = auto-pick; auto-pick
+re-runs on every device change. A pendant connection is privileged in
+auto mode (becomes the active device unless you've pinned a USB device).
+
+**Runtime directory** (for the IPC socket):
+```
+sudo cp systemd/pendantd.tmpfiles.conf /etc/tmpfiles.d/pendantd.conf
+sudo systemd-tmpfiles --create
+```
+
 ## License
 
 Apache-2.0.
