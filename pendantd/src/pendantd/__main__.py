@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from dataclasses import asdict
 from pathlib import Path
 
 from .server import Server, ControlSocketServer
@@ -46,14 +47,14 @@ def _build_control_handlers(router: AudioRouter, voice_loop: VoiceLoop, cfg_path
         router.set_pin(kind, substring)
         cfg_key = "input_device" if kind == "input" else "output_device"
         _cfg_set(cfg_key, substring)
-        return {"matched": matched.__dict__ if matched else None, "persisted": True}
+        return {"matched": asdict(matched) if matched else None, "persisted": True}
 
     def _set_aliases(params: dict) -> dict:
         aliases = [a for a in params.get("aliases", []) if isinstance(a, str)]
         _cfg_set("wake_aliases", aliases)
         base = ["claude"]
-        voice_loop._wake.set_vocabulary(base + aliases)
-        return {"vocabulary": list(voice_loop._wake.vocabulary), "persisted": True}
+        voice_loop.wake.set_vocabulary(base + aliases)
+        return {"vocabulary": list(voice_loop.wake.vocabulary), "persisted": True}
 
     async def _audio_test_loopback(params: dict) -> dict:
         from .audio.loopback import record_and_play
@@ -86,7 +87,7 @@ def _build_control_handlers(router: AudioRouter, voice_loop: VoiceLoop, cfg_path
         voice_loop.pause()
         played = 0
         try:
-            piper = voice_loop._piper  # already wired
+            piper = voice_loop.piper  # already wired
             async for chunk in piper.synthesize(text):
                 await router.write(chunk)
                 played += len(chunk)
@@ -102,8 +103,6 @@ def _build_control_handlers(router: AudioRouter, voice_loop: VoiceLoop, cfg_path
     async def _voice_test_wake(params: dict) -> dict:
         timeout_s = float(params.get("timeout_seconds", 10.0))
         # Snapshot last_wake_at; collect any new wakes during the window.
-        # NOTE: phrase is reported as "(detected)" — VoiceLoop doesn't track
-        # last_wake_phrase; adding that field is a future enhancement.
         baseline = voice_loop.last_wake_at
         event_loop = asyncio.get_event_loop()
         deadline = event_loop.time() + timeout_s
@@ -112,7 +111,7 @@ def _build_control_handlers(router: AudioRouter, voice_loop: VoiceLoop, cfg_path
             await asyncio.sleep(0.2)
             if voice_loop.last_wake_at is not None and voice_loop.last_wake_at != baseline:
                 matches.append({
-                    "phrase": "(detected)",
+                    "phrase": voice_loop.last_wake_phrase or "(detected)",
                     "timestamp_s": voice_loop.last_wake_at,
                 })
                 baseline = voice_loop.last_wake_at
@@ -120,13 +119,13 @@ def _build_control_handlers(router: AudioRouter, voice_loop: VoiceLoop, cfg_path
 
     return {
         "audio.list_devices": lambda p: {
-            "inputs": [d.__dict__ for d in list_devices().inputs],
-            "outputs": [d.__dict__ for d in list_devices().outputs],
+            "inputs": [asdict(d) for d in list_devices().inputs],
+            "outputs": [asdict(d) for d in list_devices().outputs],
         },
         "audio.get_active": lambda p: {
-            "input": router.active_input.__dict__ if router.active_input else None,
-            "output": router.active_output.__dict__ if router.active_output else None,
-            "source": "pinned" if (router._pin_in or router._pin_out) else "auto",
+            "input": asdict(router.active_input) if router.active_input else None,
+            "output": asdict(router.active_output) if router.active_output else None,
+            "source": "pinned" if (router.pin_in or router.pin_out) else "auto",
         },
         "audio.set_input": lambda p: _set_pin("input", p),
         "audio.set_output": lambda p: _set_pin("output", p),
@@ -138,10 +137,11 @@ def _build_control_handlers(router: AudioRouter, voice_loop: VoiceLoop, cfg_path
         "voice.stop": lambda p: (voice_loop.pause(), {"state": voice_loop.state.value, "paused": True})[1],
         "voice.status": lambda p: {
             "state": voice_loop.state.value,
-            "vocabulary": list(voice_loop._wake.vocabulary),
-            "current_input": router.active_input.__dict__ if router.active_input else None,
-            "current_output": router.active_output.__dict__ if router.active_output else None,
+            "vocabulary": list(voice_loop.wake.vocabulary),
+            "current_input": asdict(router.active_input) if router.active_input else None,
+            "current_output": asdict(router.active_output) if router.active_output else None,
             "last_wake_at": voice_loop.last_wake_at,
+            "last_wake_phrase": voice_loop.last_wake_phrase,
             "last_utterance": voice_loop.last_utterance,
             "latency_ms": voice_loop.last_latency_ms,
         },
@@ -267,8 +267,8 @@ async def async_main() -> int:
                 if new_cfg.get("robot_name"):
                     new_vocab.append(new_cfg["robot_name"])
                 new_vocab.extend(new_cfg.get("wake_aliases", []))
-                if new_vocab != list(voice_loop._wake.vocabulary):
-                    voice_loop._wake.set_vocabulary(new_vocab)
+                if new_vocab != list(voice_loop.wake.vocabulary):
+                    voice_loop.wake.set_vocabulary(new_vocab)
                 if new_cfg.get("sample_rate") != cfg["sample_rate"] or new_cfg.get("tts_voice") != cfg["tts_voice"]:
                     log.warning("voice.yaml: sample_rate/tts_voice changes require pendantd restart")
                 cfg.clear()

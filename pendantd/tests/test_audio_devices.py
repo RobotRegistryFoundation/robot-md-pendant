@@ -1,3 +1,5 @@
+import logging
+
 from pendantd.audio.devices import (
     Device,
     DeviceList,
@@ -42,6 +44,21 @@ def test_match_substring_returns_first_index_winner_when_ambiguous():
     devs = list_devices(query=lambda: FAKE)
     matched = match_substring(devs.outputs, "USB")
     assert matched.name == "Jabra SPEAK 410 USB"  # first by index
+
+
+def test_match_substring_warns_on_multiple_matches(caplog):
+    # Build a device list where multiple entries match the substring.
+    fake_ambiguous = [
+        {"index": 0, "name": "USB Headset A", "max_input_channels": 1, "max_output_channels": 2,
+         "default_samplerate": 16000.0, "hostapi": 0},
+        {"index": 1, "name": "USB Headset B", "max_input_channels": 1, "max_output_channels": 2,
+         "default_samplerate": 16000.0, "hostapi": 0},
+    ]
+    devs = list_devices(query=lambda: fake_ambiguous)
+    with caplog.at_level(logging.WARNING, logger="pendantd.audio.devices"):
+        matched = match_substring(devs.outputs, "USB")
+    assert matched.name == "USB Headset A"  # first by index
+    assert any("match_substring" in rec.message and "2" in rec.message for rec in caplog.records)
 
 
 def test_match_substring_returns_none_when_missing():

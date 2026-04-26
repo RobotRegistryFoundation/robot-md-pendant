@@ -120,6 +120,14 @@ class AudioRouter:
         self.active_input = None
         self.active_output = None
 
+    @property
+    def pin_in(self) -> str:
+        return self._pin_in
+
+    @property
+    def pin_out(self) -> str:
+        return self._pin_out
+
     def set_pin(self, kind: str, substring: str) -> None:
         if kind == "input":
             self._pin_in = substring

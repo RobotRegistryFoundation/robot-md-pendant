@@ -228,3 +228,23 @@ async def test_voice_loop_tracks_latency_ms_after_handle_utterance():
     await task
     assert loop.last_latency_ms is not None
     assert loop.last_latency_ms > 0  # measurable elapsed time
+
+
+@pytest.mark.asyncio
+async def test_voice_loop_last_wake_phrase_set_after_wake():
+    """last_wake_phrase tracks which vocabulary entry fired."""
+    frames = [b"\x00" * 320 for _ in range(40)]
+    router = FakeRouter(frames)
+    loop = VoiceLoop(
+        router=router, wake=StubWake(fire_after_n_frames=2),
+        endpoint_factory=lambda on_end: StubEndpoint(on_end, fire_after=2),
+        whisper=StubWhisper(), agent=StubAgent(), piper=StubPiper(),
+        wake_step_seconds=0.01,
+    )
+    assert loop.last_wake_phrase is None
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.4)
+    await loop.stop()
+    await task
+    # StubWake returns [{"phrase": "bob", ...}] when it fires
+    assert loop.last_wake_phrase == "bob"
