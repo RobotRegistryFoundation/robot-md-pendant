@@ -20,6 +20,8 @@ class Server:
         self._agent_factory = agent_factory
         self._whisper = whisper
         self._piper = piper
+        self.on_pendant_connect: Optional[Callable[[], None]] = None
+        self.on_pendant_disconnect: Optional[Callable[[], None]] = None
 
     @contextlib.asynccontextmanager
     async def run(self) -> AsyncIterator[str]:
@@ -44,6 +46,9 @@ class Server:
                     pass
             session.estopped = False
         await ws.send(json.dumps(session.hello_payload()))
+        if self.on_pendant_connect is not None:
+            try: self.on_pendant_connect()
+            except Exception: pass
 
         def _mark_estopped() -> None:
             session.estopped = True
@@ -87,6 +92,9 @@ class Server:
         except websockets.ConnectionClosed:
             pass
         finally:
+            if self.on_pendant_disconnect is not None:
+                try: self.on_pendant_disconnect()
+                except Exception: pass
             poll_task.cancel()
             try:
                 await poll_task
@@ -219,3 +227,69 @@ class Server:
         q = parse_qs(urlparse(path).query)
         ids = q.get("id", ["unknown"])
         return ids[0]
+
+
+import asyncio as _asyncio
+import json as _json
+import os as _os
+from pathlib import Path as _Path
+from typing import Awaitable as _Awaitable, Callable as _Callable
+
+
+class ControlSocketServer:
+    """Unix-socket JSON-RPC server for pendant-mcp ↔ pendantd IPC."""
+
+    Handler = _Callable[[dict], "object | _Awaitable[object]"]
+
+    def __init__(self, path: str, handlers: dict[str, Handler], mode: int = 0o660) -> None:
+        self._path = path
+        self._handlers = handlers
+        self._mode = mode
+        self._server: _asyncio.AbstractServer | None = None
+
+    async def start(self) -> None:
+        try:
+            _os.unlink(self._path)
+        except FileNotFoundError:
+            pass
+        _Path(self._path).parent.mkdir(parents=True, exist_ok=True)
+        self._server = await _asyncio.start_unix_server(self._handle, path=self._path)
+        _os.chmod(self._path, self._mode)
+
+    async def _handle(self, reader: _asyncio.StreamReader, writer: _asyncio.StreamWriter) -> None:
+        try:
+            while not reader.at_eof():
+                line = await reader.readline()
+                if not line:
+                    return
+                try:
+                    msg = _json.loads(line)
+                except _json.JSONDecodeError:
+                    continue
+                req_id = msg.get("id")
+                method = msg.get("method")
+                params = msg.get("params", {}) or {}
+                if method not in self._handlers:
+                    resp = {"id": req_id, "error": {"message": f"unknown method: {method!r}"}}
+                else:
+                    try:
+                        out = self._handlers[method](params)
+                        if hasattr(out, "__await__"):
+                            out = await out  # type: ignore[assignment]
+                        resp = {"id": req_id, "result": out}
+                    except Exception as e:  # surface failures, never crash
+                        resp = {"id": req_id, "error": {"message": str(e)}}
+                writer.write((_json.dumps(resp) + "\n").encode())
+                await writer.drain()
+        finally:
+            try: writer.close()
+            except Exception: pass
+
+    async def stop(self) -> None:
+        if self._server is not None:
+            self._server.close()
+            await self._server.wait_closed()
+            try:
+                _os.unlink(self._path)
+            except FileNotFoundError:
+                pass
