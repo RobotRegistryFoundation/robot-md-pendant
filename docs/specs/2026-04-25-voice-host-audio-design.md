@@ -87,7 +87,7 @@
 | File | Change |
 |---|---|
 | `wake.py` | Replaced. New `StreamingWakeMatcher` runs `faster-whisper tiny.en` on a rolling 1.5 s window every ~500 ms with `vad_filter=True`. Matches against `["claude", robot_name, *aliases]` (case-insensitive, trailing-whitespace tolerant, fuzzy edge — Levenshtein ≤ 1 on names ≥ 4 chars). |
-| `endpoint.py` | Extended. `webrtcvad`-based silence detection (300 ms trailing silence → utterance ends). |
+| `endpoint.py` | Unchanged. The existing RMS-threshold `Endpointer` (300 ms trailing silence → utterance ends) is reused as-is — no `webrtcvad` dependency. |
 | `loop.py` | **New.** Orchestrates: router → wake matcher → endpoint → utterance Whisper → agent → piper TTS → router. State machine: `idle` → `listening` → `thinking` → `speaking` → `listening`. Wake events during a TTS notice (≤ 600 ms) duck the notice and proceed. |
 | `whisper.py`, `piper.py`, `buffer.py` | Interfaces unchanged; consumed by `loop.py`. |
 
@@ -304,7 +304,6 @@ Added to `pendantd/pyproject.toml`:
 sounddevice>=0.4
 faster-whisper>=1.0
 pyudev>=0.24
-webrtcvad>=2.0
 mcp>=1.0
 ```
 
