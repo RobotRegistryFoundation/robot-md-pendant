@@ -253,8 +253,16 @@ class ControlSocketServer:
         except FileNotFoundError:
             pass
         _Path(self._path).parent.mkdir(parents=True, exist_ok=True)
-        self._server = await _asyncio.start_unix_server(self._handle, path=self._path)
-        _os.chmod(self._path, self._mode)
+        # Restrict umask so the socket isn't briefly world-rw between bind() and chmod().
+        # The parent dir at /run/pendantd is also 0770 root:pendant (Task 17 tmpfiles.d).
+        # NOTE: single-instance is enforced upstream by systemd, not here — restart simply
+        # unlinks the stale socket above.
+        old_umask = _os.umask(0o077)
+        try:
+            self._server = await _asyncio.start_unix_server(self._handle, path=self._path)
+            _os.chmod(self._path, self._mode)
+        finally:
+            _os.umask(old_umask)
 
     async def _handle(self, reader: _asyncio.StreamReader, writer: _asyncio.StreamWriter) -> None:
         try:
