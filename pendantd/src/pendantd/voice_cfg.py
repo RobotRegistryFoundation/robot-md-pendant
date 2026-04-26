@@ -6,6 +6,13 @@ import yaml
 from watchfiles import awatch
 
 REQUIRED_KEYS = ("wake_word", "tts_voice")
+DEFAULTS: dict = {
+    "robot_name": "",
+    "wake_aliases": [],
+    "input_device": "",
+    "output_device": "",
+    "sample_rate": 16000,
+}
 
 class VoiceConfigError(ValueError):
     pass
@@ -17,6 +24,8 @@ def load_voice_cfg(path) -> dict:
     for key in REQUIRED_KEYS:
         if key not in data:
             raise VoiceConfigError(f"missing required key: {key!r}")
+    for key, default in DEFAULTS.items():
+        data.setdefault(key, default if not isinstance(default, list) else list(default))
     return data
 
 class VoiceCfgWatcher:

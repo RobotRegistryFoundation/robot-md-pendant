@@ -16,6 +16,17 @@ def test_rejects_missing_required(tmp_path):
     with pytest.raises(VoiceConfigError):
         load_voice_cfg(cfg)
 
+def test_load_voice_cfg_fills_new_defaults_for_old_files(tmp_path):
+    p = tmp_path / "voice.yaml"
+    p.write_text("wake_word: claude\ntts_voice: en_US-amy-medium\n")
+    cfg = load_voice_cfg(p)
+    assert cfg["wake_word"] == "claude"
+    assert cfg["robot_name"] == ""        # default
+    assert cfg["wake_aliases"] == []      # default
+    assert cfg["input_device"] == ""      # default
+    assert cfg["output_device"] == ""     # default
+    assert cfg["sample_rate"] == 16000    # default
+
 @pytest.mark.asyncio
 async def test_watcher_triggers_on_change(tmp_path):
     cfg = tmp_path / "voice.yaml"
