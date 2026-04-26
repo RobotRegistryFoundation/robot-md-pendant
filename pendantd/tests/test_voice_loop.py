@@ -94,3 +94,79 @@ async def test_voice_loop_announces_on_router_change():
     await loop.stop()
     await task
     assert any(b for b in router.written)  # announcement played
+
+
+@pytest.mark.asyncio
+async def test_voice_loop_survives_agent_exception():
+    """An exception in agent.query must not kill the loop."""
+    class BoomAgent:
+        def __init__(self): self.calls = 0
+        async def query(self, text):
+            self.calls += 1
+            raise RuntimeError("agent crashed")
+
+    frames = [b"\x00" * 320 for _ in range(40)]
+    router = FakeRouter(frames)
+    loop = VoiceLoop(
+        router=router, wake=StubWake(fire_after_n_frames=2),
+        endpoint_factory=lambda on_end: StubEndpoint(on_end, fire_after=2),
+        whisper=StubWhisper(), agent=BoomAgent(), piper=StubPiper(),
+        wake_step_seconds=0.01,
+    )
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.3)
+    await loop.stop()
+    await task
+    # Loop must have returned to LISTENING after the failure
+    assert LoopState.LISTENING in loop.history
+    assert LoopState.IDLE == loop.state
+
+
+@pytest.mark.asyncio
+async def test_voice_loop_stop_during_thinking_returns_promptly():
+    """stop() while a slow agent.query is in flight must cancel it."""
+    cancelled: list[bool] = []
+
+    class SlowAgent:
+        async def query(self, text):
+            try:
+                await asyncio.sleep(30)
+                return "should not get here"
+            except asyncio.CancelledError:
+                cancelled.append(True)
+                raise
+
+    frames = [b"\x00" * 320 for _ in range(40)]
+    router = FakeRouter(frames)
+    loop = VoiceLoop(
+        router=router, wake=StubWake(fire_after_n_frames=2),
+        endpoint_factory=lambda on_end: StubEndpoint(on_end, fire_after=2),
+        whisper=StubWhisper(), agent=SlowAgent(), piper=StubPiper(),
+        wake_step_seconds=0.01,
+    )
+    task = asyncio.create_task(loop.run())
+    # Give it time to wake and enter THINKING
+    await asyncio.sleep(0.3)
+    # Now stop — should NOT take 30s
+    t0 = asyncio.get_running_loop().time()
+    await loop.stop()
+    await asyncio.wait_for(task, timeout=1.0)
+    elapsed = asyncio.get_running_loop().time() - t0
+    assert elapsed < 1.0, f"stop took {elapsed:.2f}s — pipeline did not cancel"
+    assert cancelled == [True]
+    assert loop.state == LoopState.IDLE
+
+
+@pytest.mark.asyncio
+async def test_voice_loop_history_is_bounded():
+    """history is a deque(maxlen=64); should not grow unbounded."""
+    router = FakeRouter([b"\x00" * 320 for _ in range(200)])
+    loop = VoiceLoop(
+        router=router, wake=StubWake(fire_after_n_frames=99999),  # never fires
+        endpoint_factory=lambda on_end: StubEndpoint(on_end, fire_after=999),
+        whisper=StubWhisper(), agent=StubAgent(), piper=StubPiper(),
+    )
+    # Manually thrash the state to fill history past 64
+    for _ in range(200):
+        loop._set_state(LoopState.LISTENING)
+    assert len(loop.history) <= 64

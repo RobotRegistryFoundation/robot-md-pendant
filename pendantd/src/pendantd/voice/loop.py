@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import enum
-from typing import Any, Callable, Protocol
+import logging
+from typing import Any, Awaitable, Callable, Protocol
+
+log = logging.getLogger(__name__)
 
 
 class LoopState(enum.Enum):
@@ -49,7 +53,7 @@ class VoiceLoop:
         self._win_bytes = int(wake_window_seconds * sample_rate * 2)
         self._step_bytes = int(wake_step_seconds * sample_rate * 2)
         self.state = LoopState.IDLE
-        self.history: list[LoopState] = []
+        self.history: "collections.deque[LoopState]" = collections.deque(maxlen=64)
         self.last_wake_at: float | None = None
         self.last_utterance: str = ""
         self._stop = asyncio.Event()
@@ -74,50 +78,108 @@ class VoiceLoop:
         rolling = bytearray()
         bytes_since_step = 0
         self._set_state(LoopState.LISTENING)
-        while not self._stop.is_set():
-            # Drain announcements first (cuts mid-listen)
-            try:
-                msg = self._announce_q.get_nowait()
-                self._set_state(LoopState.SPEAKING)
-                await self._speak(msg)
-                self._set_state(LoopState.LISTENING)
-            except asyncio.QueueEmpty:
-                pass
-
-            try:
-                chunk = await asyncio.wait_for(self._router.read(), timeout=0.5)
-            except asyncio.TimeoutError:
-                continue
-            rolling.extend(chunk)
-            if len(rolling) > self._win_bytes:
-                del rolling[: len(rolling) - self._win_bytes]
-            bytes_since_step += len(chunk)
-            if bytes_since_step < self._step_bytes:
-                continue
-            bytes_since_step = 0
-
-            hits = self._wake.feed(bytes(rolling))
-            if not hits:
-                continue
-
-            self.last_wake_at = loop.time()
-            # Capture utterance until endpoint fires
-            self._set_state(LoopState.THINKING)
-            utt = bytearray()
-            done = asyncio.Event()
-            ep = self._make_endpoint(done.set)  # factory: (on_end) -> endpoint
-            while not done.is_set():
+        try:
+            while not self._stop.is_set():
+                # Drain announcements first (cuts mid-listen)
                 try:
-                    c = await asyncio.wait_for(self._router.read(), timeout=2.5)
+                    msg = self._announce_q.get_nowait()
+                    self._set_state(LoopState.SPEAKING)
+                    try:
+                        await self._speak(msg)
+                    except Exception:
+                        log.exception("VoiceLoop: announcement playback failed")
+                    self._set_state(LoopState.LISTENING)
+                except asyncio.QueueEmpty:
+                    pass
+
+                try:
+                    chunk = await asyncio.wait_for(self._router.read(), timeout=0.5)
                 except asyncio.TimeoutError:
-                    break
-                utt.extend(c)
-                ep.feed(c)
-            transcript = await self._whisper.transcribe(bytes(utt))
-            self.last_utterance = transcript
-            reply = await self._agent.query(transcript)
-            self._set_state(LoopState.SPEAKING)
-            await self._speak(reply)
-            self._set_state(LoopState.LISTENING)
-            rolling.clear()
-        self._set_state(LoopState.IDLE)
+                    continue
+                except Exception:
+                    log.exception("VoiceLoop: router.read failed; pausing 0.5s")
+                    await asyncio.sleep(0.5)
+                    continue
+
+                rolling.extend(chunk)
+                if len(rolling) > self._win_bytes:
+                    del rolling[: len(rolling) - self._win_bytes]
+                bytes_since_step += len(chunk)
+                if bytes_since_step < self._step_bytes:
+                    continue
+                bytes_since_step = 0
+
+                # Run wake matcher off the event loop — faster-whisper is sync
+                # and would otherwise block announcements / IPC / DeviceWatcher.
+                try:
+                    hits = await asyncio.to_thread(self._wake.feed, bytes(rolling))
+                except Exception:
+                    log.exception("VoiceLoop: wake.feed failed; skipping window")
+                    continue
+                if not hits:
+                    continue
+
+                self.last_wake_at = loop.time()
+                self._set_state(LoopState.THINKING)
+                try:
+                    await self._handle_utterance()
+                except Exception:
+                    log.exception("VoiceLoop: utterance pipeline failed")
+                finally:
+                    self._set_state(LoopState.LISTENING)
+                    rolling.clear()
+                    bytes_since_step = 0
+        finally:
+            self._set_state(LoopState.IDLE)
+
+    async def _handle_utterance(self) -> None:
+        """Capture, transcribe, query, speak. Cancellable on _stop."""
+        utt = bytearray()
+        done = asyncio.Event()
+        ep = self._make_endpoint(done.set)
+        # Capture utterance, watching _stop
+        while not done.is_set() and not self._stop.is_set():
+            try:
+                c = await asyncio.wait_for(self._router.read(), timeout=2.5)
+            except asyncio.TimeoutError:
+                break
+            utt.extend(c)
+            ep.feed(c)
+        if self._stop.is_set() or not utt:
+            return
+        # Transcribe (race against stop)
+        transcript = await self._race_with_stop(self._whisper.transcribe(bytes(utt)))
+        if transcript is None:
+            return
+        self.last_utterance = transcript
+        # Agent query (race against stop)
+        reply = await self._race_with_stop(self._agent.query(transcript))
+        if reply is None:
+            return
+        # Speak (no race needed — _speak yields to the loop chunk-by-chunk
+        # and we'll naturally finish quickly; abort handled by piper.cancel
+        # in callers if needed)
+        self._set_state(LoopState.SPEAKING)
+        await self._speak(reply)
+
+    async def _race_with_stop(self, awaitable: Awaitable[Any]) -> Any | None:
+        """Run an awaitable; cancel and return None if _stop fires first."""
+        task = asyncio.ensure_future(awaitable)
+        stop_task = asyncio.ensure_future(self._stop.wait())
+        done_set, pending = await asyncio.wait(
+            [task, stop_task], return_when=asyncio.FIRST_COMPLETED,
+        )
+        if stop_task in done_set:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+            return None
+        # task completed first
+        stop_task.cancel()
+        try:
+            await stop_task
+        except asyncio.CancelledError:
+            pass
+        return task.result()
