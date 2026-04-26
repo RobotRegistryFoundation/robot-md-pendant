@@ -51,3 +51,23 @@ def test_match_substring_returns_none_when_missing():
 
 def test_pick_default_returns_none_on_empty_list():
     assert pick_default([], kind="input") is None
+
+
+def test_pick_default_output_headset_beats_usb_out_when_all_devices_passed():
+    fake = [
+        {"index": 0, "name": "Jabra SPEAK 410 USB",
+         "max_input_channels": 1, "max_output_channels": 2,
+         "default_samplerate": 16000.0, "hostapi": 0},
+        {"index": 1, "name": "USB Audio Out Only",
+         "max_input_channels": 0, "max_output_channels": 2,
+         "default_samplerate": 48000.0, "hostapi": 0},
+        {"index": 2, "name": "bcm2835 Headphones",
+         "max_input_channels": 0, "max_output_channels": 2,
+         "default_samplerate": 44100.0, "hostapi": 0},
+    ]
+    devs = list_devices(query=lambda: fake)
+    picked = pick_default(devs.outputs, kind="output", all_devices=devs)
+    # Jabra has an input partner → headset class (priority 1)
+    # USB Audio Out Only has no input partner → USB-out (priority 2)
+    # If we forget to pass all_devices, USB Audio Out Only would win on first-by-index.
+    assert picked.name == "Jabra SPEAK 410 USB"
