@@ -57,11 +57,24 @@ class VoiceLoop:
         self.last_wake_at: float | None = None
         self.last_utterance: str = ""
         self._stop = asyncio.Event()
+        self._paused: asyncio.Event = asyncio.Event()  # set = paused; clear = running
         self._announce_q: asyncio.Queue[str] = asyncio.Queue()
 
     def _set_state(self, s: LoopState) -> None:
         self.state = s
         self.history.append(s)
+
+    def pause(self) -> None:
+        """Pause wake matching. Loop stays alive; audio reads stop until resume()."""
+        self._paused.set()
+
+    def resume(self) -> None:
+        """Resume wake matching after pause()."""
+        self._paused.clear()
+
+    @property
+    def paused(self) -> bool:
+        return self._paused.is_set()
 
     async def announce(self, text: str) -> None:
         await self._announce_q.put(text)
@@ -80,6 +93,12 @@ class VoiceLoop:
         self._set_state(LoopState.LISTENING)
         try:
             while not self._stop.is_set():
+                # When paused, yield to the event loop without consuming audio
+                # so test handlers (loopback, TTS) get exclusive router access.
+                if self._paused.is_set():
+                    await asyncio.sleep(0.05)
+                    continue
+
                 # Drain announcements first (cuts mid-listen)
                 try:
                     msg = self._announce_q.get_nowait()

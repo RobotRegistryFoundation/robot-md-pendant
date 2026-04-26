@@ -170,3 +170,41 @@ async def test_voice_loop_history_is_bounded():
     for _ in range(200):
         loop._set_state(LoopState.LISTENING)
     assert len(loop.history) <= 64
+
+
+@pytest.mark.asyncio
+async def test_voice_loop_pause_blocks_wake_handling():
+    """When paused, wake hits don't trigger the utterance pipeline."""
+    frames = [b"\x00" * 320 for _ in range(40)]
+    router = FakeRouter(frames)
+    agent = StubAgent()
+    loop = VoiceLoop(
+        router=router, wake=StubWake(fire_after_n_frames=2),
+        endpoint_factory=lambda on_end: StubEndpoint(on_end, fire_after=2),
+        whisper=StubWhisper(), agent=agent, piper=StubPiper(),
+        wake_step_seconds=0.01,
+    )
+    loop.pause()  # pause BEFORE starting
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.3)
+    await loop.stop()
+    await task
+    # Agent should NOT have been called while paused
+    assert agent.calls == []
+
+
+@pytest.mark.asyncio
+async def test_voice_loop_resume_after_pause():
+    frames = [b"\x00" * 320 for _ in range(40)]
+    router = FakeRouter(frames)
+    agent = StubAgent()
+    loop = VoiceLoop(
+        router=router, wake=StubWake(fire_after_n_frames=2),
+        endpoint_factory=lambda on_end: StubEndpoint(on_end, fire_after=2),
+        whisper=StubWhisper(), agent=agent, piper=StubPiper(),
+        wake_step_seconds=0.01,
+    )
+    loop.pause()
+    assert loop.paused is True
+    loop.resume()
+    assert loop.paused is False

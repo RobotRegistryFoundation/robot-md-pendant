@@ -25,11 +25,11 @@ def _build_control_handlers(router: AudioRouter, voice_loop: VoiceLoop, cfg_path
 
     Handlers wired here:
       audio.list_devices, audio.get_active, audio.set_input, audio.set_output,
+      audio.test_loopback, audio.test_tts,
       voice.start, voice.stop, voice.status, voice.set_wake_aliases, voice.test_wake
 
-    TODO (Task 14): audio.test_loopback and audio.test_tts are not yet wired.
-    Both require briefly holding the mic/speaker and are better surfaced through
-    the MCP server layer rather than raw IPC. Deferred to Task 14.
+    Test handlers (audio.test_loopback, audio.test_tts) pause wake matching for
+    exclusive router access, then resume on exit.
     """
     import yaml as _yaml
 
@@ -55,6 +55,69 @@ def _build_control_handlers(router: AudioRouter, voice_loop: VoiceLoop, cfg_path
         voice_loop._wake.set_vocabulary(base + aliases)
         return {"vocabulary": list(voice_loop._wake.vocabulary), "persisted": True}
 
+    async def _audio_test_loopback(params: dict) -> dict:
+        from .audio.loopback import record_and_play
+        seconds = float(params.get("seconds", 2.0))
+        # Pause wake matching so the test gets exclusive use of the router.
+        was_paused = voice_loop.paused
+        voice_loop.pause()
+        try:
+            class _RouterIn:
+                async def start(self): pass
+                async def read(self): return await router.read()
+                async def stop(self): pass
+            class _RouterOut:
+                async def start(self): pass
+                async def write(self, b): await router.write(b)
+                async def stop(self): pass
+            result = await record_and_play(_RouterIn(), _RouterOut(), seconds=seconds)
+            return {
+                "recorded_bytes": result.recorded_bytes,
+                "played": True,
+                "peak_dbfs": result.peak_dbfs,
+            }
+        finally:
+            if not was_paused:
+                voice_loop.resume()
+
+    async def _audio_test_tts(params: dict) -> dict:
+        text = params.get("text", "hello")
+        was_paused = voice_loop.paused
+        voice_loop.pause()
+        played = 0
+        try:
+            piper = voice_loop._piper  # already wired
+            async for chunk in piper.synthesize(text):
+                await router.write(chunk)
+                played += len(chunk)
+        finally:
+            if not was_paused:
+                voice_loop.resume()
+        return {
+            "played": True,
+            "duration_ms": int(played / (16000 * 2) * 1000),  # bytes → ms at 16k mono s16
+            "voice": getattr(piper, "voice", "default"),
+        }
+
+    async def _voice_test_wake(params: dict) -> dict:
+        timeout_s = float(params.get("timeout_seconds", 10.0))
+        # Snapshot last_wake_at; collect any new wakes during the window.
+        # NOTE: phrase is reported as "(detected)" — VoiceLoop doesn't track
+        # last_wake_phrase; adding that field is a future enhancement.
+        baseline = voice_loop.last_wake_at
+        event_loop = asyncio.get_event_loop()
+        deadline = event_loop.time() + timeout_s
+        matches: list[dict] = []
+        while event_loop.time() < deadline:
+            await asyncio.sleep(0.2)
+            if voice_loop.last_wake_at is not None and voice_loop.last_wake_at != baseline:
+                matches.append({
+                    "phrase": "(detected)",
+                    "timestamp_s": voice_loop.last_wake_at,
+                })
+                baseline = voice_loop.last_wake_at
+        return {"matches": matches}
+
     return {
         "audio.list_devices": lambda p: {
             "inputs": [d.__dict__ for d in list_devices().inputs],
@@ -67,10 +130,12 @@ def _build_control_handlers(router: AudioRouter, voice_loop: VoiceLoop, cfg_path
         },
         "audio.set_input": lambda p: _set_pin("input", p),
         "audio.set_output": lambda p: _set_pin("output", p),
-        # voice.start / voice.stop return current state; actual start/stop is
-        # lifecycle-managed (VoiceLoop.run() is always running while daemon is up).
-        "voice.start": lambda p: {"state": voice_loop.state.value},
-        "voice.stop": lambda p: {"state": voice_loop.state.value},
+        "audio.test_loopback": _audio_test_loopback,
+        "audio.test_tts": _audio_test_tts,
+        # voice.start resumes wake matching; voice.stop pauses it.
+        # The VoiceLoop.run() coroutine stays alive — pause only suspends audio reads.
+        "voice.start": lambda p: (voice_loop.resume(), {"state": voice_loop.state.value, "paused": False})[1],
+        "voice.stop": lambda p: (voice_loop.pause(), {"state": voice_loop.state.value, "paused": True})[1],
         "voice.status": lambda p: {
             "state": voice_loop.state.value,
             "vocabulary": list(voice_loop._wake.vocabulary),
@@ -80,8 +145,7 @@ def _build_control_handlers(router: AudioRouter, voice_loop: VoiceLoop, cfg_path
             "last_utterance": voice_loop.last_utterance,
         },
         "voice.set_wake_aliases": _set_aliases,
-        # voice.test_wake: live capture deferred — call the MCP-side helper in Task 14.
-        "voice.test_wake": lambda p: {"matches": []},
+        "voice.test_wake": _voice_test_wake,
     }
 
 
@@ -98,7 +162,14 @@ async def async_main() -> int:
         cfg = None
 
     buttons = load_buttons(cfg_dir / "buttons.yaml")
-    robot_md_path = os.environ["ROBOT_MD_PATH"]
+    robot_md_path = os.environ.get("ROBOT_MD_PATH")
+    if not robot_md_path:
+        log.error(
+            "ROBOT_MD_PATH environment variable is required (path to ROBOT.md). "
+            "Set it via systemd Environment= or shell export. Example: "
+            "ROBOT_MD_PATH=/home/pi/robot/ROBOT.md"
+        )
+        return 2
     mcp = MCPBridge(command=["npx", "robot-md-mcp", "--robot", robot_md_path])
     await mcp.start()
     try:
@@ -151,11 +222,24 @@ async def async_main() -> int:
                 )
             )
 
-            # Agent: VoiceLoop.query() protocol differs from AgentSession.run_turn()
-            # (query returns a string; run_turn yields typed events). Wiring the full
-            # agent adapter is deferred to Task 14 (MCP server). Pass None for now —
-            # VoiceLoop will short-circuit at _handle_utterance if agent is None.
-            agent = None
+            # VoiceAgent wraps the Claude Agent SDK, fulfilling VoiceLoop's
+            # query(text) -> str contract. MCP server wires robot-md-mcp so the
+            # agent can read ROBOT.md and drive robot tools via voice commands.
+            from .voice.agent_adapter import VoiceAgent
+            agent = VoiceAgent(
+                system_prompt=(
+                    "You control a robot via MCP tools. Keep replies short — "
+                    "one or two sentences — since they're spoken aloud. "
+                    f"The robot is described in {robot_md_path}."
+                ),
+                mcp_servers={
+                    "robot-md": {
+                        "type": "stdio",
+                        "command": "npx",
+                        "args": ["robot-md-mcp", "--robot", robot_md_path],
+                    },
+                },
+            )
 
             voice_loop = VoiceLoop(
                 router=router,
