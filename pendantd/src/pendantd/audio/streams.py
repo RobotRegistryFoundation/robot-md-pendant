@@ -33,21 +33,26 @@ class InputStream:
         self._queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=64)
         self._stream: Any = None
 
+    def _enqueue(self, chunk: bytes) -> None:
+        """Enqueue a chunk on the event loop thread, dropping oldest under back-pressure."""
+        try:
+            self._queue.put_nowait(chunk)
+        except asyncio.QueueFull:
+            try:
+                self._queue.get_nowait()
+                self._queue.put_nowait(chunk)
+            except Exception:
+                pass
+
     def _on_block(self, indata: Any, frames: int, time_info: Any, status: Any) -> None:
         if self._loop is None:
             return
         chunk = bytes(indata)
-        try:
-            self._loop.call_soon_threadsafe(self._queue.put_nowait, chunk)
-        except asyncio.QueueFull:
-            # Drop oldest under back-pressure
-            try:
-                self._queue.get_nowait()
-                self._loop.call_soon_threadsafe(self._queue.put_nowait, chunk)
-            except Exception:
-                pass
+        self._loop.call_soon_threadsafe(self._enqueue, chunk)
 
     async def start(self) -> None:
+        if self._stream is not None:
+            return  # already started — idempotent for hot-plug double-start
         self._loop = asyncio.get_running_loop()
         self._stream = self._factory(
             samplerate=self._sr, channels=1, dtype="int16",
@@ -88,9 +93,9 @@ class OutputStream:
         self._stream.start()
 
     async def write(self, chunk: bytes) -> None:
-        if self._stream is None:
-            raise RuntimeError("OutputStream not started")
         async with self._lock:
+            if self._stream is None:
+                raise RuntimeError("OutputStream not started")
             self._stream.write(chunk)
 
     async def stop(self) -> None:
