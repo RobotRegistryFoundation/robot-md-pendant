@@ -84,3 +84,78 @@ async def test_router_falls_back_when_pinned_missing(fake_streams):
     assert r.active_input.name == "USB PnP Sound Device"
     assert r.last_fallback == "input pin 'Jabra' not present; auto-picked 'USB PnP Sound Device'"
     await r.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_router_stops_stream_when_device_disappears(fake_streams):
+    """When a previously-active device unplugs, the router stops the stream
+    and clears active_input. Most common Task 6 hot-plug path."""
+    ins, outs, mki, mko = fake_streams
+    devs = DeviceList(inputs=[_dev(0, "USB Mic", "input")], outputs=[])
+    r = AudioRouter(_input_factory=mki, _output_factory=mko)
+    await r.attach(devs)
+    assert r.active_input is not None
+    await r.update(DeviceList(inputs=[], outputs=[]))
+    assert r.active_input is None
+    assert ins[0].stopped is True
+    await r.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_router_update_with_same_device_is_noop(fake_streams):
+    """No new stream is created and the old one is not stopped if the
+    resolved device hasn't changed."""
+    ins, outs, mki, mko = fake_streams
+    devs = DeviceList(inputs=[_dev(0, "USB Mic", "input")], outputs=[])
+    r = AudioRouter(_input_factory=mki, _output_factory=mko)
+    await r.attach(devs)
+    n_streams_before = len(ins)
+    await r.update(devs)  # same DeviceList
+    assert len(ins) == n_streams_before
+    assert ins[0].stopped is False
+    await r.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_router_read_raises_when_no_active_input(fake_streams):
+    ins, outs, mki, mko = fake_streams
+    r = AudioRouter(_input_factory=mki, _output_factory=mko)
+    with pytest.raises(RuntimeError, match="no active input"):
+        await r.read()
+    await r.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_router_write_drops_silently_when_no_active_output(fake_streams):
+    ins, outs, mki, mko = fake_streams
+    r = AudioRouter(_input_factory=mki, _output_factory=mko)
+    # No attach → no output stream → write should NOT raise
+    await r.write(b"\x10\x00" * 160)
+    await r.shutdown()
+
+
+def test_router_set_pin_rejects_unknown_kind():
+    r = AudioRouter()
+    with pytest.raises(ValueError, match="unknown kind"):
+        r.set_pin("microphone", "Jabra")  # not "input" or "output"
+
+
+@pytest.mark.asyncio
+async def test_router_update_lock_serializes_concurrent_calls(fake_streams):
+    """Two concurrent update() calls must not race — the lock serializes them
+    so no stream is double-stopped or orphaned."""
+    ins, outs, mki, mko = fake_streams
+    devs1 = DeviceList(inputs=[_dev(0, "Mic A", "input")], outputs=[])
+    devs2 = DeviceList(inputs=[_dev(1, "Mic B", "input")], outputs=[])
+    r = AudioRouter(_input_factory=mki, _output_factory=mko)
+    await r.attach(devs1)
+    # Fire two updates concurrently
+    await asyncio.gather(r.update(devs2), r.update(devs1))
+    # Final state is whichever update went second; the other was serialized cleanly
+    assert r.active_input is not None
+    # No stream should be both started AND not stopped except the most recent
+    final_index = r.active_input.index
+    for s in ins[:-1]:  # all but the most recent
+        assert s.stopped is True, f"stream {s.device_index} not stopped"
+    assert ins[-1].started is True
+    await r.shutdown()

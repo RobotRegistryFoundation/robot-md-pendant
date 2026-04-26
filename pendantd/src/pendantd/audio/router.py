@@ -1,6 +1,7 @@
 """AudioRouter — owns active input and output streams, swaps on changes."""
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Callable
 
 from pendantd.audio.devices import Device, DeviceList, match_substring, pick_default
@@ -35,6 +36,7 @@ class AudioRouter:
         self._in_stream: Any = None
         self._out_stream: Any = None
         self.last_fallback: str = ""
+        self._update_lock = asyncio.Lock()
 
     def _resolve(self, devs: DeviceList) -> tuple[Device | None, Device | None]:
         in_dev: Device | None = None
@@ -79,23 +81,24 @@ class AudioRouter:
             self.active_output = out_dev
 
     async def update(self, devs: DeviceList) -> None:
-        new_in, new_out = self._resolve(devs)
-        if new_in != self.active_input:
-            if self._in_stream is not None:
-                await self._in_stream.stop()
-            self._in_stream = None
-            if new_in is not None:
-                self._in_stream = self._mk_in(device_index=new_in.index, samplerate=self._sr)
-                await self._in_stream.start()
-            self.active_input = new_in
-        if new_out != self.active_output:
-            if self._out_stream is not None:
-                await self._out_stream.stop()
-            self._out_stream = None
-            if new_out is not None:
-                self._out_stream = self._mk_out(device_index=new_out.index, samplerate=self._sr)
-                await self._out_stream.start()
-            self.active_output = new_out
+        async with self._update_lock:
+            new_in, new_out = self._resolve(devs)
+            if new_in != self.active_input:
+                if self._in_stream is not None:
+                    await self._in_stream.stop()
+                self._in_stream = None
+                if new_in is not None:
+                    self._in_stream = self._mk_in(device_index=new_in.index, samplerate=self._sr)
+                    await self._in_stream.start()
+                self.active_input = new_in
+            if new_out != self.active_output:
+                if self._out_stream is not None:
+                    await self._out_stream.stop()
+                self._out_stream = None
+                if new_out is not None:
+                    self._out_stream = self._mk_out(device_index=new_out.index, samplerate=self._sr)
+                    await self._out_stream.start()
+                self.active_output = new_out
 
     async def read(self) -> bytes:
         if self._in_stream is None:
