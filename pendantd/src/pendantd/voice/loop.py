@@ -55,6 +55,7 @@ class VoiceLoop:
         self.state = LoopState.IDLE
         self.history: "collections.deque[LoopState]" = collections.deque(maxlen=64)
         self.last_wake_at: float | None = None
+        self.last_wake_phrase: str | None = None
         self.last_utterance: str = ""
         self._stop = asyncio.Event()
         self._paused: asyncio.Event = asyncio.Event()  # set = paused; clear = running
@@ -76,6 +77,14 @@ class VoiceLoop:
     @property
     def paused(self) -> bool:
         return self._paused.is_set()
+
+    @property
+    def wake(self) -> _WakeMatcher:
+        return self._wake
+
+    @property
+    def piper(self) -> object:
+        return self._piper
 
     async def announce(self, text: str) -> None:
         await self._announce_q.put(text)
@@ -139,6 +148,7 @@ class VoiceLoop:
                 if not hits:
                     continue
 
+                self.last_wake_phrase = hits[0].get("phrase")
                 self.last_wake_at = loop.time()
                 start_time = self.last_wake_at
                 self._set_state(LoopState.THINKING)

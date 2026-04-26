@@ -1,8 +1,11 @@
 """Audio device discovery + auto-pick."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Callable, Literal
+
+log = logging.getLogger(__name__)
 
 Kind = Literal["input", "output"]
 
@@ -121,10 +124,23 @@ def pick_default(devices: list[Device], kind: Kind, all_devices: DeviceList | No
 
 
 def match_substring(devices: list[Device], substring: str) -> Device | None:
-    """Case-insensitive substring match. First match by index order wins."""
+    """Case-insensitive substring match. First match by index order wins.
+
+    Logs a warning when multiple devices match the substring, suggesting a
+    more unique pin string.
+    """
     if not substring:
         return None
     matches = [d for d in devices if d.matches(substring)]
     if not matches:
         return None
-    return min(matches, key=lambda d: d.index)
+    best = min(matches, key=lambda d: d.index)
+    if len(matches) > 1:
+        log.warning(
+            "match_substring: %d devices match %r (picking %r); "
+            "use a more unique pin to suppress this warning",
+            len(matches),
+            substring,
+            best.name,
+        )
+    return best

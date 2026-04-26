@@ -46,3 +46,32 @@ def test_watcher_requires_running_loop():
     async def _boom(_): pass
     with pytest.raises(RuntimeError):
         DeviceWatcher(on_change=_boom, _start_udev=False)
+
+
+@pytest.mark.asyncio
+async def test_watcher_bluez_grace_fires_with_longer_delay():
+    """_emit with a longer delay_s fires measurably later than the default debounce."""
+    fired_times: list[tuple[str, float]] = []
+    loop = asyncio.get_running_loop()
+
+    async def on_change(reason: str):
+        fired_times.append((reason, loop.time()))
+
+    # Use debounce=50ms and bluez_grace=300ms so the difference is measurable
+    # without relying on real hardware.
+    w = DeviceWatcher(
+        on_change=on_change,
+        debounce_ms=50,
+        bluez_grace_ms=300,
+        _start_udev=False,
+    )
+    t0 = loop.time()
+    w._emit("usb-add")
+    w._emit("bluez-add", delay_s=w._bluez_grace_s)
+    await asyncio.sleep(0.5)
+
+    times = dict(fired_times)
+    assert set(times) == {"usb-add", "bluez-add"}
+    # Normal debounce fires quickly (within 200ms); grace fires after ≥250ms
+    assert times["usb-add"] - t0 < 0.2, "normal debounce took too long"
+    assert times["bluez-add"] - t0 >= 0.25, "bluez grace delay not applied"
