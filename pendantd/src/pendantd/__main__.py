@@ -154,15 +154,6 @@ async def async_main() -> int:
     cfg_dir = Path(os.environ.get("PENDANTD_CONFIG", str(Path.home() / ".config" / "robot-md-pendant")))
     cfg_path = cfg_dir / "voice.yaml"
 
-    # Load voice config; fall back to minimal defaults if file absent so the
-    # daemon can still serve WS without voice hardware configured yet.
-    try:
-        cfg = load_voice_cfg(cfg_path)
-    except (FileNotFoundError, VoiceConfigError) as exc:
-        log.warning("voice.yaml not loaded (%s); voice pipeline disabled", exc)
-        cfg = None
-
-    buttons = load_buttons(cfg_dir / "buttons.yaml")
     robot_md_path = os.environ.get("ROBOT_MD_PATH")
     if not robot_md_path:
         log.error(
@@ -171,6 +162,20 @@ async def async_main() -> int:
             "ROBOT_MD_PATH=/home/pi/robot/ROBOT.md"
         )
         return 2
+
+    # Load voice config; sidecar yaml is layered on top of the manifest's
+    # optional voice: block (rcan-spec §8.7) so robot-portable defaults
+    # (aliases, language, tts_voice) flow through and host-specific fields
+    # (devices, sample rate, wake_word) override per host. Fall back to
+    # minimal defaults if file absent so the daemon can still serve WS
+    # without voice hardware configured yet.
+    try:
+        cfg = load_voice_cfg(cfg_path, manifest_path=robot_md_path)
+    except (FileNotFoundError, VoiceConfigError) as exc:
+        log.warning("voice.yaml not loaded (%s); voice pipeline disabled", exc)
+        cfg = None
+
+    buttons = load_buttons(cfg_dir / "buttons.yaml")
     mcp = MCPBridge(command=["npx", "robot-md-mcp", "--robot", robot_md_path])
     await mcp.start()
     try:
@@ -274,7 +279,11 @@ async def async_main() -> int:
                 cfg.clear()
                 cfg.update(new_cfg)
 
-            cfg_watcher = VoiceCfgWatcher(cfg_path, on_change=_on_voice_cfg_change)
+            cfg_watcher = VoiceCfgWatcher(
+                cfg_path,
+                on_change=_on_voice_cfg_change,
+                manifest_path=robot_md_path,
+            )
             await cfg_watcher.start()
 
             async def on_device_change(reason: str) -> None:
