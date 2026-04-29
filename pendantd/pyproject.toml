@@ -18,6 +18,10 @@ dependencies = [
   "faster-whisper>=1.0",
   "pyudev>=0.24",
   "mcp>=1.0",
+  # voice block parsing from ROBOT.md (rcan-spec §8.7). Soft dependency:
+  # voice_cfg.py falls back to sidecar-only mode if rcan isn't importable,
+  # but pendantd is fundamentally about ROBOT.md so we pin it as required.
+  "rcan>=3.3.3",
 ]
 
 [project.optional-dependencies]
