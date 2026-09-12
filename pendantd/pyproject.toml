@@ -9,7 +9,9 @@ description = "Pi-side service for robot-md-pendant"
 requires-python = ">=3.11"
 license = "Apache-2.0"
 dependencies = [
-  "websockets>=12.0",
+  # >=14: the handshake-auth callback uses process_request(connection, request)
+  # and connection.respond(), which older releases do not have.
+  "websockets>=14.0",
   "jsonschema>=4.21",
   "pyyaml>=6.0",
   "watchfiles>=0.21",

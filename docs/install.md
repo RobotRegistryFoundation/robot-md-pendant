@@ -32,9 +32,9 @@ systemctl --user enable --now pendantd
 ## Serving a hardware pendant on the LAN
 
 pendantd binds `127.0.0.1:8765` by default: the websocket drives a robot, so it
-is not on the network until you say so. For the ESP32 pendant, start it with
-`--serve-lan` (`ExecStart=/usr/bin/python3 -m pendantd --serve-lan` in the unit
-file, then `systemctl --user daemon-reload && systemctl --user restart pendantd`).
+is not on the network until you say so. For the ESP32 pendant, flip the
+`PENDANTD_SERVE_LAN` line the shipped unit already carries to `1` (or pass
+`--serve-lan`), then `systemctl --user daemon-reload && systemctl --user restart pendantd`.
 
 Serving on a LAN address requires a token. pendantd generates one on first run
 into `~/.config/robot-md-pendant/token` (mode 0600) and logs the pendant URL:

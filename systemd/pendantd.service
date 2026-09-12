@@ -7,6 +7,9 @@ Wants=network-online.target
 Type=simple
 Environment=ROBOT_MD_PATH=%h/robot-md/ROBOT.md
 Environment=ANTHROPIC_API_KEY=CHANGEME
+# Set to 1 for a hardware pendant on the LAN (same as --serve-lan). Serving on
+# a LAN address requires the token pendantd generates into <config>/token.
+Environment=PENDANTD_SERVE_LAN=0
 ExecStart=/usr/bin/python3 -m pendantd
 Restart=on-failure
 RestartSec=3
