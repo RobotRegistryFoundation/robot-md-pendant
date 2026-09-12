@@ -137,8 +137,11 @@ static void on_chat_submit(const char *text) {
 }
 
 static void on_soft_stop(void) {
-    // Paint banner immediately — don't wait for Pi confirmation.
-    ui_set_estopped_banner(true);
+    // Do NOT paint the banner here. The banner means "the robot is stopped",
+    // and pressing the button is not proof of that: the Pi may report
+    // stop_not_confirmed, or the socket may be down and the press never arrive.
+    // MSG_STATUS above is the only thing that moves the banner, so the display
+    // shows the stop that happened, never the stop that was asked for.
     char buf[64];
     int n = protocol_emit_soft_stop(buf, sizeof(buf));
     if (n > 0) ws_client_send_text(buf, n);
