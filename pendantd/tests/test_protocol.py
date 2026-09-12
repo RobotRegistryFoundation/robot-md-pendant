@@ -15,7 +15,7 @@ def test_validate_rejects_bad_shape():
 ALL_TYPES = [
     "hello", "heartbeat", "error",
     "button_press", "chat_prompt", "chat_message", "tool_call",
-    "status", "soft_stop", "thumbnail",
+    "status", "soft_stop", "stop_clear", "thumbnail",
     "voice_state", "wake_enabled", "barge_in", "voice_error",
 ]
 

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://robot-md-pendant/schemas/v1/stop_clear.schema.json",
+  "title": "stop_clear",
+  "type": "object",
+  "required": ["v", "type", "confirm"],
+  "properties": {
+    "v":       {"const": 1},
+    "type":    {"const": "stop_clear"},
+    "confirm": {"const": true}
+  },
+  "additionalProperties": false
+}

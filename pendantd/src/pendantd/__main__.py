@@ -1,7 +1,10 @@
 from __future__ import annotations
+import argparse
 import asyncio
 import logging
 import os
+import secrets
+import stat
 from dataclasses import asdict
 from pathlib import Path
 
@@ -19,6 +22,53 @@ from .voice.whisper import Whisper
 from .voice_cfg import load_voice_cfg, VoiceCfgWatcher, VoiceConfigError
 
 log = logging.getLogger(__name__)
+
+# Loopback by default: a websocket that drives a robot does not belong on every
+# LAN it can see. `--serve-lan` (or PENDANTD_SERVE_LAN=1) opts in, and opting in
+# requires a token, which is generated on first run — no file to hand-edit.
+DEFAULT_HOST = "127.0.0.1"
+LAN_HOST = "0.0.0.0"
+
+# Per-voice-turn budget for the Agent SDK: a spoken request that cannot be
+# answered in this many turns stops instead of looping on the robot's hardware.
+VOICE_TURN_BUDGET = 8
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(prog="pendantd", description="Pi-side service for robot-md-pendant")
+    p.add_argument(
+        "--serve-lan",
+        action="store_true",
+        default=os.environ.get("PENDANTD_SERVE_LAN") == "1",
+        help=f"bind {LAN_HOST} instead of {DEFAULT_HOST} so a hardware pendant on the LAN can connect (requires a token)",
+    )
+    p.add_argument("--host", default=None, help="explicit bind address (overrides --serve-lan)")
+    p.add_argument("--port", type=int, default=int(os.environ.get("PENDANTD_PORT", "8765")))
+    return p.parse_args(argv)
+
+
+def load_or_create_token(cfg_dir: Path) -> str:
+    """Return the shared handshake token, generating it on first run.
+
+    PENDANTD_TOKEN wins if set (systemd Environment=). Otherwise the token lives
+    in <cfg_dir>/token, 0600, created here — generated, never hand-edited, so the
+    ten-minute path stays one command. The value is logged once at startup so the
+    operator can provision the pendant with ws://<pi>:8765/?id=<id>&token=<token>.
+    """
+    env_token = os.environ.get("PENDANTD_TOKEN")
+    if env_token:
+        return env_token
+    token_path = cfg_dir / "token"
+    if token_path.exists():
+        existing = token_path.read_text().strip()
+        if existing:
+            return existing
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    token = secrets.token_urlsafe(32)
+    token_path.write_text(token + "\n")
+    token_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    log.info("generated pendant token at %s", token_path)
+    return token
 
 
 def _build_control_handlers(router: AudioRouter, voice_loop: VoiceLoop, cfg_path: Path) -> dict:
@@ -150,7 +200,8 @@ def _build_control_handlers(router: AudioRouter, voice_loop: VoiceLoop, cfg_path
     }
 
 
-async def async_main() -> int:
+async def async_main(args: argparse.Namespace | None = None) -> int:
+    args = args if args is not None else parse_args([])
     cfg_dir = Path(os.environ.get("PENDANTD_CONFIG", str(Path.home() / ".config" / "robot-md-pendant")))
     cfg_path = cfg_dir / "voice.yaml"
 
@@ -176,10 +227,18 @@ async def async_main() -> int:
         cfg = None
 
     buttons = load_buttons(cfg_dir / "buttons.yaml")
-    mcp = MCPBridge(command=["npx", "robot-md-mcp", "--robot", robot_md_path])
+    # npx resolves an unpinned name to whatever is latest at launch: pin it.
+    mcp = MCPBridge(command=["npx", "--yes", "robot-md-mcp@0.5.0", "--robot", robot_md_path])
     await mcp.start()
     try:
-        server = Server(host="0.0.0.0", port=8765, mcp=mcp, buttons=buttons)
+        host = args.host or (LAN_HOST if args.serve_lan else DEFAULT_HOST)
+        token = load_or_create_token(cfg_dir) if host != DEFAULT_HOST else None
+        server = Server(host=host, port=args.port, mcp=mcp, buttons=buttons, token=token)
+        if token is not None:
+            log.info(
+                "serving on %s:%s — pendant URL: ws://<pi-address>:%s/?id=<pendant-id>&token=%s",
+                host, args.port, args.port, token,
+            )
 
         voice_loop: VoiceLoop | None = None
         router: AudioRouter | None = None
@@ -240,12 +299,18 @@ async def async_main() -> int:
                     f"The robot is described in {robot_md_path}."
                 ),
                 mcp_servers={
-                    "robot-md": {
-                        "type": "stdio",
-                        "command": "npx",
-                        "args": ["robot-md-mcp", "--robot", robot_md_path],
-                    },
+                    # the npx launch is pinned to an exact version, never "latest"
+                    "robot-md": {"type": "stdio", "command": "npx", "args": ["--yes", "robot-md-mcp@0.5.0", "--robot", robot_md_path]},
                 },
+                # A voice turn may read the manifest and nothing else: no shell, no
+                # filesystem, no network. Anything the agent is allowed to reach has
+                # to be listed here by name.
+                allowed_tools=[
+                    "mcp__robot-md__validate",
+                    "mcp__robot-md__render",
+                    "mcp__robot-md__doctor_summary",
+                ],
+                max_turns=VOICE_TURN_BUDGET,
             )
 
             voice_loop = VoiceLoop(
@@ -349,8 +414,9 @@ async def async_main() -> int:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    args = parse_args()
     try:
-        return asyncio.run(async_main()) or 0
+        return asyncio.run(async_main(args)) or 0
     except KeyboardInterrupt:
         return 0
 

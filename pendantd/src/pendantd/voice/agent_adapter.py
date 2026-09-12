@@ -23,10 +23,17 @@ class VoiceAgent:
         self,
         system_prompt: str,
         mcp_servers: dict | None = None,
+        allowed_tools: list[str] | None = None,
+        max_turns: int | None = None,
     ) -> None:
+        # allowed_tools is an allowlist, not a hint: the SDK may only use the
+        # tools named here. max_turns bounds a single spoken turn so a confused
+        # agent stops rather than looping against the robot.
         self._options = ClaudeAgentOptions(
             system_prompt=system_prompt,
             mcp_servers=mcp_servers or {},
+            allowed_tools=list(allowed_tools) if allowed_tools is not None else [],
+            max_turns=max_turns,
         )
 
     async def query(self, text: str) -> str:

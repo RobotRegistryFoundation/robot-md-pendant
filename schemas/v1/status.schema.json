@@ -8,7 +8,9 @@
     "v":            {"const": 1},
     "type":         {"const": "status"},
     "robot_status": {"type": "object"},
-    "estopped":     {"type": "boolean"}
+    "estopped":     {"type": "boolean"},
+    "stop":         {"enum": ["stopped", "stop_not_confirmed", "cleared", "cleared_local_only", "clear_not_confirmed"]},
+    "reason":       {"type": "string"}
   },
   "additionalProperties": false
 }

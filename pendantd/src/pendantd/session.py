@@ -10,6 +10,10 @@ class Session:
     wifi_mode: str = "sta"
     robot_status: dict = field(default_factory=lambda: {"bus": "ok"})
     estopped: bool = False
+    # True only when a robot-side stop tool confirmed the stop. A latch the
+    # pendant set on its own (watchdog, lost heartbeat) leaves this False, so
+    # `stop_clear` can tell "the robot is latched" from "we lost the pendant".
+    stop_confirmed: bool = False
     # NEW — reference to the piper currently streaming, if any, for barge-in cancellation
     _piper_active: object | None = None
 

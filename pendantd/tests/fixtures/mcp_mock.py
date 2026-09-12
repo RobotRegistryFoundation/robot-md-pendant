@@ -15,6 +15,9 @@ def main():
             respond(req["id"], {"tools": [
                 {"name": "execute_capability", "description": "", "inputSchema": {"type": "object"}},
                 {"name": "estop",              "description": "", "inputSchema": {"type": "object"}},
+                # listed because tools/call below answers it: the pendant only
+                # calls tools the server advertises.
+                {"name": "estop_clear",        "description": "", "inputSchema": {"type": "object"}},
             ]})
         elif method == "tools/call":
             params = req["params"]
